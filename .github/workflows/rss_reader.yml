@@ -32,7 +32,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: venv
-          key: "venv-${{ matrix.os }}-${{ matrix.python-version }}"
+          key: "venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}"
 
       - name: Create virtual environment
         if: |
