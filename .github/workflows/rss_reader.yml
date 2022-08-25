@@ -34,7 +34,7 @@ jobs:
           path: venv
           key: "venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}"
 
-      - name: Create virtual environment
+      - name: Create virtual environment (*nix)
         if: |
           (startsWith(runner.os, 'Linux') || startsWith(runner.os, 'macOS'))
           && steps.cache.outputs.cache-hit != 'true'
@@ -45,7 +45,7 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements_dev.txt
 
-      - name: Create virtual environment
+      - name: Create virtual environment (Windows)
         if: |
           startsWith(runner.os, 'Windows')
           && steps.cache.outputs.cache-hit != 'true'
@@ -60,13 +60,13 @@ jobs:
         if: ${{ startsWith(runner.os, 'Linux') || startsWith(runner.os, 'macOS') }}
         run: |
           source venv/bin/activate
-          pytest --junitxml=junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          pytest --junitxml=junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage/coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Test with pytest (Windows)
         if: ${{ startsWith(runner.os, 'Windows') }}
         run: |
           .\venv\Scripts\activate.bat
-          pytest --junitxml=junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          pytest --junitxml=junit\test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage\coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Upload pytest test results
         uses: actions/upload-artifact@v3
@@ -80,6 +80,11 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: coverage-results-${{ matrix.os }}-${{ matrix.python-version }}
-          path: coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          path: coverage/coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
         # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          directory: ./coverage
