@@ -85,7 +85,7 @@ jobs:
         if: ${{ always() }}
 
       - name: Upload Linux coverage to Codecov
-        if: ${{ startsWith(runner.os, 'Linux')
+        if: ${{ startsWith(runner.os, 'Linux') }}
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
