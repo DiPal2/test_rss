@@ -158,7 +158,7 @@ class TextRenderer(AbstractRenderer):
         super().__init__(width)
         self._header_formats = {"title": "Feed: {}"}
         self._entry_formats = {
-            "title": "\nTitle: {}",
+            "title": "\n\nTitle: {}\n",
             "published": "Date: {}",
             "link": "Link: {}",
             "description": "\n{}",
