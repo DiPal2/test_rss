@@ -31,7 +31,7 @@ jobs:
         id: cache
         uses: actions/cache@v2
         with:
-          path: ./venv
+          path: venv
           key: "venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}"
 
       - name: Create virtual environment (*nix)
@@ -51,7 +51,7 @@ jobs:
           && steps.cache.outputs.cache-hit != 'true'
         run: |
           python -m venv venv
-          .\venv\Scripts\activate.bat
+          venv/Scripts/activate.ps1
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements_dev.txt
@@ -65,7 +65,7 @@ jobs:
       - name: Test with pytest (Windows)
         if: ${{ startsWith(runner.os, 'Windows') }}
         run: |
-          .\venv\Scripts\activate.bat
+          venv/Scripts/activate.ps1
           pytest --junitxml=junit\test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage\coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Upload pytest test results
