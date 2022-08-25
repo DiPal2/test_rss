@@ -31,7 +31,7 @@ jobs:
         id: cache
         uses: actions/cache@v2
         with:
-          path: venv
+          path: ./venv
           key: "venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements*.txt') }}"
 
       - name: Create virtual environment (*nix)
@@ -84,7 +84,8 @@ jobs:
         # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
 
-      - name: Upload coverage to Codecov
+      - name: Upload Linux coverage to Codecov
+        if: ${{ startsWith(runner.os, 'Linux')
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
