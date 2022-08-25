@@ -14,7 +14,7 @@ from typing import Iterator, Optional
 import feedparser
 from html2text import HTML2Text
 
-__version_info__ = ("0", "1", "0")
+__version_info__ = ("0", "1", "1")
 __version__ = ".".join(__version_info__)
 
 
@@ -100,13 +100,16 @@ class AbstractRenderer(ABC):
         self._html.default_image_alt = "image"
         self._html.single_line_break = True
 
+    def _from_html(self, value: str) -> str:
+        return self._html.handle(value)[:-2]
+
     def _render_fields(
         self, fields: tuple, data: dict, processor: Callable[[str, str], None]
     ) -> None:
         for field, is_html in fields:
             if field in data:
                 if is_html:
-                    value = self._html.handle(data[field])
+                    value = self._from_html(data[field])
                 else:
                     value = data[field]
                 processor(field, value)
