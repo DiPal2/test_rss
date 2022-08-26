@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:googleplay="http://www.google.com/schemas/play-podcasts/1.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <atom:link href="https://feeds.simplecast.com/54nAGcIl" rel="self" title="MP3 Audio" type="application/atom+xml"/>
+    <atom:link href="https://simplecast.superfeedr.com/" rel="hub" xmlns="http://www.w3.org/2005/Atom"/>
+    <generator>https://simplecast.com</generator>
+    <title>The Daily</title>
+    <description>This is what the news should sound like. The biggest stories of our time, told by the best journalists in the world. Hosted by Michael Barbaro and Sabrina Tavernise. Twenty minutes a day, five days a week, ready by 6 a.m.</description>
+    <copyright>© 2020-2021 THE NEW YORK TIMES COMPANY; The New York Times encourages the use of RSS feeds for personal use in a news reader or as part of a non-commercial blog, subject to your agreement to our Terms of Service.</copyright>
+    <language>en</language>
+    <pubDate>Thu, 25 Aug 2022 09:45:00 +0000</pubDate>
+    <lastBuildDate>Thu, 25 Aug 2022 09:45:30 +0000</lastBuildDate>
+    <image>
+      <link>https://www.nytimes.com/the-daily</link>
+      <title>The Daily</title>
+      <url>https://image.simplecastcdn.com/images/03d8b493-87fc-4bd1-931f-8a8e9b945d8a/2cce5659-f647-4366-b318-46e4b67afcfa/3000x3000/c81936f538106550b804e7e4fe2c236319bab7fba37941a6e8f7e5c3d3048b88fc5b2182fb790f7d446bdc820406456c94287f245db89d8656c105d5511ec3de.jpeg?aid=rss_feed</url>
+    </image>
+    <link>https://www.nytimes.com/the-daily</link>
+    <item>
+      <guid isPermaLink="false">7dee09a4-25ef-4ca6-8f3e-9993f8c1c088</guid>
+      <title>Who Killed Daria Dugina?</title>
+      <description><![CDATA[<p>Daria Dugina and her father, Aleksandr Dugin, have been major figures in the Russian propaganda landscape, advocating Russian imperialism and supporting the invasion of Ukraine.</p><p>But a few days ago, Ms. Dugina was killed in a car bomb after leaving a nationalist festival, fueling speculation about who carried out the attack and whether Moscow’s reaction could affect the war in Ukraine.</p><p>Guest: <a href="https://www.nytimes.com/by/anton-troianovski?smid=pc-thedaily">Anton Troianovski</a>, the Moscow bureau chief for The New York Times.</p><p>Background reading: </p><ul><li>The<a href="https://www.nytimes.com/2022/08/22/world/europe/russia-ukraine-daria-dugina.html"> clamor over the killing of Ms. Dugina</a> highlights the prominence of her fellow pro-war Russian ultranationalists.</li></ul><p>For more information on today’s episode, visit <a href="http://nytimes.com/thedaily?smid=pc-thedaily">nytimes.com/thedaily</a>. Transcripts of each episode will be made available by the next workday. </p>
+]]></description>
+      <pubDate>Thu, 25 Aug 2022 09:45:00 +0000</pubDate>
+      <author>thedaily@nytimes.com (The New York Times)</author>
+      <link>https://www.nytimes.com/the-daily</link>
+    </item>
+    <item>
+      <guid isPermaLink="false">5777d128-542f-48f5-9b06-70a1ad57a37a</guid>
+      <title>The Rise of Workplace Surveillance</title>
+      <description><![CDATA[<p>Across industries and income brackets, a growing number of American workers are discovering that their productivity is being electronically monitored by their bosses.</p><p>This technology is giving employers a means to gauge what their employees are doing and it’s already impacting how much and when people get paid.</p><p>Times investigative reporters have discovered that this tracking software is more common than one might think.</p><p>Guest: <a href="https://www.nytimes.com/by/jodi-kantor?smid=pc-thedaily">Jodi Kantor</a>, an investigative reporter for The New York Times.</p><p>Background reading: </p><ul><li>Across industries and incomes,<a href="https://www.nytimes.com/interactive/2022/08/14/business/worker-productivity-tracking.html?smid=pc-thedaily"> more employees are being tracked, recorded and ranked</a>. What is gained, companies say, is efficiency and accountability. What is lost?</li></ul><p>For more information on today’s episode, visit </p><p><a href="http://nytimes.com/thedaily?smid=pc-thedaily">nytimes.com/thedaily</a></p><p>. Transcripts of each episode will be made available by the next workday.</p>
+]]></description>
+      <pubDate>Wed, 24 Aug 2022 09:45:00 +0000</pubDate>
+      <author>thedaily@nytimes.com (The New York Times)</author>
+      <link>https://www.nytimes.com/the-daily</link>
+    </item>
+  </channel>
+</rss>
