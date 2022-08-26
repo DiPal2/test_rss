@@ -62,14 +62,14 @@ def test_json_renderer_entry(data, expected):
 @pytest.mark.parametrize(
     "file_name",
     [
-        pytest.param("data1", id="1"),
+        pytest.param("data_simple", id="simple"),
     ],
 )
 def test_json_renderer_entry_description(file_name):
     file_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
     with open(file_name + ".html", "r") as file:
         input_data = file.read().replace("\r\n", "\n")
-    with open(file_name + ".txt", "r") as file:
+    with open(file_name + "_json.txt", "r") as file:
         output_data = file.read().replace("\r\n", "\n")
     renderer = JsonRenderer()
     renderer.render_entry({"description": input_data})

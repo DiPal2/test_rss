@@ -10,9 +10,10 @@ import logging
 import shutil
 import sys
 from typing import Iterator, Optional
+import xml.etree.ElementTree as ET
 
-import feedparser
 from html2text import HTML2Text
+import requests
 
 __version_info__ = ("0", "1", "1")
 __version__ = ".".join(__version_info__)
@@ -39,44 +40,79 @@ def call_logger(*log_args) -> Callable:
     return decorate
 
 
+class RssReaderError(Exception):
+    """
+    Generic exception for RSS Reader
+    """
+
+
+class ContentUnreachable(RssReaderError):
+    """
+    URL content is unreachable
+    """
+
+
+class NotRssContent(RssReaderError):
+    """
+    Exception for not RSS content
+    """
+
+
 class Feed:
     """
     A class used for loading and parsing a feed
     """
 
-    def __init__(self, url: str, maximum: int):
+    def __init__(self, content: str, maximum: int):
         """
         Init a feed and constructs all the necessary attributes
         """
         self._num = 0
         self._iter = None
         self._max = maximum
-        logging.info("Loading feed from %s", url)
-        result = feedparser.parse(url)
-        if "bozo_exception" in result:
-            logging.info("Feed returned %s", result.bozo_exception)
-            logging.error("Feed from %s cannot be loaded", url)
-        else:
-            logging.info("Feed loaded")
-        self._feed = result
+        logging.info("Feed started parsing")
+        try:
+            root = ET.fromstring(content)
+            if root.tag == "rss" and root[0].tag == "channel":
+                logging.info("%s with version %s", root.tag, root.get("version"))
+                self._feed = root[0]
+            else:
+                raise NotRssContent
+        except Exception as ex:
+            logging.info("XML parsing failed with %s", ex)
+            raise NotRssContent from ex
+
+    def _xml_children_to_dict(self, xml_element, stop_element_name=None) -> dict:
+        result = {}
+        for child in xml_element:
+            if stop_element_name and child.tag == stop_element_name:
+                break
+            logging.info(
+                "_xml_children_to_dict: %s [%s] with %s",
+                child.tag,
+                child.text,
+                child.attrib,
+            )
+            result[child.tag] = child.text
+        return result
 
     @property
     def feed_info(self) -> dict:
         """
         Feed header info
         """
-        return self._feed.feed
+        return self._xml_children_to_dict(self._feed, "item")
 
     def __iter__(self) -> Iterator:
         self._num = 0
-        self._iter = self._feed.entries.__iter__()
+        self._iter = self._feed.iter("item")
         return self
 
     def __next__(self):
         if self._max == 0 or self._num < self._max:
-            result = self._iter.__next__()
+            item = self._iter.__next__()
             self._num += 1
-            return result
+            return self._xml_children_to_dict(item)
         raise StopIteration
 
 
@@ -213,11 +249,26 @@ class JsonRenderer(AbstractRenderer):
         print(json.dumps(self._json))
 
 
+def url_loader(url: str) -> None:
+    """
+    Load content from URL
+    """
+    logging.info("Loading content from %s", url)
+    try:
+        request = requests.get(url)
+        logging.info("Received response %s", request.status_code)
+    except Exception as ex:
+        logging.info("Loading content failed with %s", ex)
+        raise ContentUnreachable from ex
+    return request.content
+
+
 def feed_processor(url: str, limit: int = 0, is_json: bool = False) -> None:
     """
     Performs full processing of the feed based on parsed arguments
     """
-    feed = Feed(url, limit)
+    content = url_loader(url)
+    feed = Feed(content, limit)
     renderer = JsonRenderer() if is_json else TextRenderer()
     renderer.render_header(feed.feed_info)
     for item in feed:
@@ -261,14 +312,14 @@ def main() -> None:
 
     try:
         feed_processor(args.url, args.limit or 0, args.json)
+    except ContentUnreachable:
+        print("Error happened as content cannot be loaded from", args.url)
+    except NotRssContent:
+        print("Error happened as there is no RSS at", args.url)
     except Exception as ex:
         logging.info("Exception was raised %s", ex)
-        # temp !
-        import traceback
-
-        traceback.print_exc()
-
         print("Error happened during program execution.")
+        raise
 
 
 if __name__ == "__main__":

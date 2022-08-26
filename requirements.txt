@@ -1,2 +1,2 @@
-feedparser>=6.0
 html2text
+requests
