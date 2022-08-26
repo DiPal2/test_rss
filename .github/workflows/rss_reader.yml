@@ -45,10 +45,9 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements_dev.txt
 
-      - name: Create virtual environment (Windows)
+      - name: Create virtual environment (Windows) # cache is not working
         if: |
           startsWith(runner.os, 'Windows')
-          && steps.cache.outputs.cache-hit != 'true'
         run: |
           python -m venv venv
           venv/Scripts/activate.ps1
@@ -73,7 +72,6 @@ jobs:
         with:
           name: pytest-results-${{ matrix.os }}-${{ matrix.python-version }}
           path: junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
-        # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
 
       - name: Upload coverage results
@@ -81,7 +79,6 @@ jobs:
         with:
           name: coverage-results-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage/coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
-        # Use always() to always run this step to publish test results when there are test failures
         if: ${{ always() }}
 
       - name: Upload Linux coverage to Codecov
