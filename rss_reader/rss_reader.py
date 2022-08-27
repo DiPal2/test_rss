@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "1", "1")
+__version_info__ = ("0", "1", "2")
 __version__ = ".".join(__version_info__)
 
 
@@ -82,7 +82,10 @@ class Feed:
             logging.info("XML parsing failed with %s", ex)
             raise NotRssContent from ex
 
-    def _xml_children_to_dict(self, xml_element, stop_element_name=None) -> dict:
+    @staticmethod
+    def _xml_children_to_dict(
+        xml_element: ET.Element, stop_element_name: Optional[str] = None
+    ) -> dict:
         result = {}
         for child in xml_element:
             if stop_element_name and child.tag == stop_element_name:
@@ -108,7 +111,7 @@ class Feed:
         self._iter = self._feed.iter("item")
         return self
 
-    def __next__(self):
+    def __next__(self) -> dict:
         if self._max == 0 or self._num < self._max:
             item = self._iter.__next__()
             self._num += 1
@@ -249,7 +252,7 @@ class JsonRenderer(AbstractRenderer):
         print(json.dumps(self._json))
 
 
-def url_loader(url: str) -> None:
+def url_loader(url: str) -> str:
     """
     Load content from URL
     """
@@ -260,7 +263,7 @@ def url_loader(url: str) -> None:
     except Exception as ex:
         logging.info("Loading content failed with %s", ex)
         raise ContentUnreachable from ex
-    return request.content
+    return request.text
 
 
 def feed_processor(url: str, limit: int = 0, is_json: bool = False) -> None:
