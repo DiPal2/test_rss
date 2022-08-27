@@ -122,9 +122,9 @@ def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
 )
 def test_json_renderer_entry_description(file_name, capfd):
     file_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
-    with open(file_name + ".html", "r") as file:
+    with open(file_name + ".html", "r", encoding="utf-8") as file:
         input_data = file.read().replace("\r\n", "\n")
-    with open(file_name + "_json.txt", "r") as file:
+    with open(file_name + "_json.txt", "r", encoding="utf-8") as file:
         expected = file.read().replace("\r\n", "\n")
     renderer = JsonRenderer()
     renderer.render_entry({"description": input_data})
