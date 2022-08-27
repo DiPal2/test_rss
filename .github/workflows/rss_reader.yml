@@ -66,13 +66,13 @@ jobs:
         if: ${{ startsWith(runner.os, 'Linux') || startsWith(runner.os, 'macOS') }}
         run: |
           source venv/bin/activate
-          pytest -vv --junitxml=junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage/coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          pytest --junitxml=junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage/coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Test with pytest (Windows)
         if: ${{ startsWith(runner.os, 'Windows') }}
         run: |
           venv\Scripts\activate.ps1
-          pytest -vv --junitxml=junit\test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage\coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          pytest --junitxml=junit\test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage\coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Upload pytest test results
         uses: actions/upload-artifact@v3
