@@ -4,7 +4,7 @@ import json
 import os
 import pytest
 
-from rss_reader.rss_reader import FeedToDict
+from rss_reader.rss_reader import FeedToDict, NotRssContent
 
 
 @pytest.mark.parametrize(
@@ -32,3 +32,33 @@ def test_feed(file_name, expected_title):
     for item in feed:
         assert item | expected_first_item == item
         break
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("something that does not look like HTML", id="non-HTML"),
+        pytest.param('<!DOCTYPE html><html lang="en"><head></hea', id="broken-HTML"),
+        pytest.param(
+            '<!DOCTYPE html><html lang="en"><head></head><body>Works</body></html>',
+            id="HTML",
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="UTF-8"?><note><to>Sam', id="broken-XML"
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="UTF-8"?><note><to>Sample</to></note>',
+            id="XML",
+        ),
+        pytest.param(
+            '<?xml version="1.0" encoding="UTF-8"?><rss><channel><title>P</title>',
+            id="broken-RSS",
+        ),
+    ],
+)
+def test_feed_exception(content):
+    """
+    Test FeedToDict with non-RSS content
+    """
+    with pytest.raises(NotRssContent):
+        FeedToDict(content, 0)
