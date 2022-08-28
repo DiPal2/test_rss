@@ -1,11 +1,16 @@
 [![codecov](https://codecov.io/gh/DiPal2/test_rss/branch/main/graph/badge.svg?token=PRS5R979VI)](https://codecov.io/gh/DiPal2/test_rss)
 # rss_reader
-
-
 rss_reader is a Python script that reads RSS feed and displays it in various formats.
 
+## Installation
+To start using the script, type the following commands in the directory that contains downloaded files:
 
-usage: `rss_reader.py [-h] [--version] [--json] [--verbose] [--limit LIMIT] source`
+```shell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+## Usage
+`rss_reader.py [-h] [--version] [--json] [--verbose] [--limit LIMIT] source`
 
 | Option           | Description
 |------------------|--------------------------------------------

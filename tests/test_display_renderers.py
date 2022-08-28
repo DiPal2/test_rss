@@ -13,6 +13,9 @@ from rss_reader.rss_reader import TextRenderer, JsonRenderer
     ]
 )
 def renderer_type(request):
+    """
+    A fixture for all supported renders
+    """
     return request.param
 
 
@@ -35,6 +38,9 @@ def renderer_type(request):
     ],
 )
 def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
+    """
+    Tests render_header in renders
+    """
     if renderer_type == "json":
         renderer = JsonRenderer()
         expected = expected_j
@@ -94,14 +100,17 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
                 "link": "http:\\one.com",
                 "description": "Test news",
             },
-            '{"entries": [{"title": "test", "published": "2020-01-02", "link": "http:\\\\one.com",'
-            + ' "description": "Test news"}]}\n',
+            '{"entries": [{"title": "test", "published": "2020-01-02", "link": '
+            + '"http:\\\\one.com", "description": "Test news"}]}\n',
             "\n\nTitle: test\n\nDate: 2020-01-02\nLink: http:\\one.com\n\nTest news\n",
             id="all",
         ),
     ],
 )
 def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
+    """
+    Tests render_entry in renders
+    """
     if renderer_type == "json":
         renderer = JsonRenderer()
         expected = expected_j
@@ -121,10 +130,13 @@ def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
     ],
 )
 def test_json_renderer_entry_description(file_name, capfd):
+    """
+    Tests render_entry with a real HTML content in JsonRenderer
+    """
     file_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
-    with open(file_name + ".html", "r", encoding="utf-8") as file:
+    with open(f"{file_name}.xml", "r", encoding="utf-8") as file:
         input_data = file.read().replace("\r\n", "\n")
-    with open(file_name + "_json.txt", "r", encoding="utf-8") as file:
+    with open(f"{file_name}_first.json", "r", encoding="utf-8") as file:
         expected = file.read().replace("\r\n", "\n")
     renderer = JsonRenderer()
     renderer.render_entry({"description": input_data})

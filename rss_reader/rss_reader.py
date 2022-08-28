@@ -2,38 +2,41 @@
 
 from abc import ABC, abstractmethod
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from functools import wraps
 import inspect
 import json
 import logging
 import shutil
 import sys
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Any
 import xml.etree.ElementTree as ET
 
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "1", "2")
+__version_info__ = ("0", "1", "3")
 __version__ = ".".join(__version_info__)
 
 
-def call_logger(*log_args) -> Callable:
+def call_logger(*args_to_log: str) -> Callable:
     """
-    Decorator for logging function call and arguments
+    Decorator to log function call with arguments of interest
+    :param args_to_log: names of arguments to be shown
+    :return: decorator
     """
 
     def decorate(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             arg_names = inspect.getfullargspec(func).args
-            args_repr = [f"{k}={v!r}" for k, v in zip(arg_names, args) if k in log_args]
-            kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items() if k in log_args]
+            args_repr = [
+                f"{k}={v!r}" for k, v in zip(arg_names, args) if k in args_to_log
+            ]
+            kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items() if k in args_to_log]
             all_args_repr = ", ".join(args_repr + kwargs_repr)
             logging.info("%s called with %s", func.__name__, all_args_repr)
-            result = func(*args, **kwargs)
-            return result
+            return func(*args, **kwargs)
 
         return wrapper
 
@@ -58,17 +61,21 @@ class NotRssContent(RssReaderError):
     """
 
 
-class Feed:
+class FeedToDict:
     """
-    A class used for loading and parsing a feed
+    A class used for converting RSS feed content to Iterable dictionaries
     """
 
     def __init__(self, content: str, maximum: int):
         """
         Init a feed and constructs all the necessary attributes
+        :param content: string that contains RSS feed
+        :param maximum: an int that limits processing of items in the feed
+                        (0 means no limit)
+        :raise NotRssContent
         """
-        self._num = 0
-        self._iter = None
+        self._num: int
+        self._iter: Generator[ET.Element, None, None]
         self._max = maximum
         logging.info("Feed started parsing")
         try:
@@ -90,12 +97,7 @@ class Feed:
         for child in xml_element:
             if stop_element_name and child.tag == stop_element_name:
                 break
-            logging.info(
-                "_xml_children_to_dict: %s [%s] with %s",
-                child.tag,
-                child.text,
-                child.attrib,
-            )
+            logging.info("XML: %s [%s] with %s", child.tag, child.text, child.attrib)
             result[child.tag] = child.text
         return result
 
@@ -103,6 +105,7 @@ class Feed:
     def feed_info(self) -> dict:
         """
         Feed header info
+        :return: a dictionary with header elements
         """
         return self._xml_children_to_dict(self._feed, "item")
 
@@ -147,10 +150,7 @@ class AbstractRenderer(ABC):
     ) -> None:
         for field, is_html in fields:
             if field in data:
-                if is_html:
-                    value = self._from_html(data[field])
-                else:
-                    value = data[field]
+                value = self._from_html(data[field]) if is_html else data[field]
                 processor(field, value)
 
     @call_logger("data")
@@ -169,6 +169,8 @@ class AbstractRenderer(ABC):
     def render_header(self, data: dict) -> None:
         """
         Render feed header
+        :param data: a dictionary with header elements
+        :return: Nothing
         """
         raise NotImplementedError
 
@@ -176,6 +178,8 @@ class AbstractRenderer(ABC):
     def render_entry(self, data: dict) -> None:
         """
         Render feed entry
+        :param data: a dictionary with entry elements
+        :return: Nothing
         """
         raise NotImplementedError
 
@@ -183,6 +187,7 @@ class AbstractRenderer(ABC):
     def render_exit(self) -> None:
         """
         Finish rendering
+        :return: Nothing
         """
         raise NotImplementedError
 
@@ -255,10 +260,12 @@ class JsonRenderer(AbstractRenderer):
 def url_loader(url: str) -> str:
     """
     Load content from URL
+    :param url: an address
+    :return: a string with content
     """
     logging.info("Loading content from %s", url)
     try:
-        request = requests.get(url)
+        request = requests.get(url, timeout=600)
         logging.info("Received response %s", request.status_code)
     except Exception as ex:
         logging.info("Loading content failed with %s", ex)
@@ -268,10 +275,15 @@ def url_loader(url: str) -> str:
 
 def feed_processor(url: str, limit: int = 0, is_json: bool = False) -> None:
     """
-    Performs full processing of the feed based on parsed arguments
+    Performs loading and displaying of the RSS feed
+    :param url: an address of the RSS feed
+    :param limit: an int that limits processing of items in the feed
+                 (0 means no limit)
+    :param is_json: should data be displayed in JSON format
+    :return: Nothing
     """
     content = url_loader(url)
-    feed = Feed(content, limit)
+    feed = FeedToDict(content, limit)
     renderer = JsonRenderer() if is_json else TextRenderer()
     renderer.render_header(feed.feed_info)
     for item in feed:
@@ -292,7 +304,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Pure Python command-line RSS reader.")
     parser.add_argument("url", metavar="source", type=str, help="RSS URL")
-    parser.add_argument("--version", action="version", version="Version " + __version__)
+    parser.add_argument("--version", action="version", version=f"Version {__version__}")
     parser.add_argument(
         "--json", action="store_true", help="Print result as JSON in stdout"
     )

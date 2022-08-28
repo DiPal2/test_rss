@@ -1,2 +1,2 @@
 html2text
-requests
+requests>=2.27

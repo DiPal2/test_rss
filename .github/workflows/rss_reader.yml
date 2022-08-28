@@ -60,7 +60,9 @@ jobs:
         run: |
           source venv/bin/activate
           black --check --diff .
+          pycodestyle rss_reader
           pylint rss_reader
+          mypy rss_reader
 
       - name: Test with pytest (*nix)
         if: ${{ startsWith(runner.os, 'Linux') || startsWith(runner.os, 'macOS') }}
