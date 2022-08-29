@@ -70,9 +70,9 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
             id="title_len_0",
         ),
         pytest.param(
-            {"title": "test", "other": "other"},
-            '{"entries": [{"title": "test"}]}\n',
-            "\n\nTitle: test\n\n",
+            {"title": "test'&#x27;&nbsp;&#160;\u2019\u00a0", "other": "other"},
+            '{"entries": [{"title": "test\'\'  \\u2019"}]}\n',
+            "\n\nTitle: test''  ’\n\n",
             id="title_reduced",
         ),
         pytest.param(

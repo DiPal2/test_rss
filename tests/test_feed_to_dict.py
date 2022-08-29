@@ -15,6 +15,7 @@ from rss_reader.rss_reader import FeedToDict, NotRssContent
             "politico", "Politics, Policy, Political News Top Stories", id="politico"
         ),
         pytest.param("latimes", "California", id="latimes"),
+        pytest.param("usatoday", "GANNETT Syndication Service", id="usatoday"),
     ],
 )
 def test_feed(file_name, expected_title):

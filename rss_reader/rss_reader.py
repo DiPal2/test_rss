@@ -127,13 +127,12 @@ class AbstractRenderer(ABC):
     An abstract class used for rendering feed
     """
 
-    # key_name, is_html
-    FEED_FIELDS = (("title", False),)
+    FEED_FIELDS = ("title",)
     ENTRY_FIELDS = (
-        ("title", True),
-        ("published", False),
-        ("link", False),
-        ("description", True),
+        "title",
+        "published",
+        "link",
+        "description",
     )
 
     def __init__(self, body_width: Optional[int] = None) -> None:
@@ -148,9 +147,9 @@ class AbstractRenderer(ABC):
     def _render_fields(
         self, fields: tuple, data: dict, processor: Callable[[str, str], None]
     ) -> None:
-        for field, is_html in fields:
+        for field in fields:
             if field in data:
-                value = self._from_html(data[field]) if is_html else data[field]
+                value = self._from_html(data[field])
                 processor(field, value)
 
     @call_logger("data")
