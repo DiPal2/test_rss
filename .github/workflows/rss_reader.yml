@@ -60,9 +60,12 @@ jobs:
         run: |
           source venv/bin/activate
           black --check --diff .
-          pycodestyle rss_reader
+          pycodestyle rss_reader tests
           pylint rss_reader
-          mypy rss_reader
+          mypy --disallow-untyped-defs rss_reader
+          mypy tests
+          cd tests
+          pylint tests
 
       - name: Test with pytest (*nix)
         if: ${{ startsWith(runner.os, 'Linux') || startsWith(runner.os, 'macOS') }}
