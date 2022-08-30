@@ -18,7 +18,7 @@ from rss_reader.rss_reader import FeedToDict, NotRssContent
         pytest.param("usatoday", "GANNETT Syndication Service", id="usatoday"),
     ],
 )
-def test_feed(file_name, expected_title):
+def test_feed_to_dict(file_name, expected_title):
     """
     Test header and 1st element in FeedToDict with real examples
     """
@@ -57,7 +57,7 @@ def test_feed(file_name, expected_title):
         ),
     ],
 )
-def test_feed_exception(content):
+def test_feed_to_dict_exception(content):
     """
     Test FeedToDict with non-RSS content
     """
