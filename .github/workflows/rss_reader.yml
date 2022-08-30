@@ -86,6 +86,12 @@ jobs:
           path: junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
         if: ${{ always() }}
 
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action/composite@v2
+        with:
+          junit_files: "junit/test-results-*.xml"
+        if: ${{ always() }}
+
       - name: Upload coverage results
         uses: actions/upload-artifact@v3
         with:
