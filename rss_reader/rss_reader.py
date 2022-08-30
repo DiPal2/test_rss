@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "1", "3")
+__version_info__ = ("0", "1", "4")
 __version__ = ".".join(__version_info__)
 
 
@@ -66,6 +66,10 @@ class FeedToDict:
     A class used for converting RSS feed content to Iterable dictionaries
     """
 
+    _REMAP_FIELDS = {"pubDate": "published"}
+
+    _FEED_ITEM = "item"
+
     def __init__(self, content: str, maximum: int):
         """
         Init a feed and constructs all the necessary attributes
@@ -89,16 +93,16 @@ class FeedToDict:
             logging.info("XML parsing failed with %s", ex)
             raise NotRssContent from ex
 
-    @staticmethod
     def _xml_children_to_dict(
-        xml_element: ET.Element, stop_element_name: Optional[str] = None
+        self, xml_element: ET.Element, stop_element_name: Optional[str] = None
     ) -> dict:
         result = {}
         for child in xml_element:
             if stop_element_name and child.tag == stop_element_name:
                 break
             logging.info("XML: %s [%s] with %s", child.tag, child.text, child.attrib)
-            result[child.tag] = child.text
+            key = self._REMAP_FIELDS.get(child.tag, child.tag)
+            result[key] = child.text
         return result
 
     @property
@@ -107,11 +111,11 @@ class FeedToDict:
         Feed header info
         :return: a dictionary with header elements
         """
-        return self._xml_children_to_dict(self._feed, "item")
+        return self._xml_children_to_dict(self._feed, self._FEED_ITEM)
 
     def __iter__(self) -> Iterator:
         self._num = 0
-        self._iter = self._feed.iter("item")
+        self._iter = self._feed.iter(self._FEED_ITEM)
         return self
 
     def __next__(self) -> dict:
