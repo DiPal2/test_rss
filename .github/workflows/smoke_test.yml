@@ -29,7 +29,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Smoke Run
+      - name: Install App
         run: |
           python setup.py install
+
+      - name: Smoke Run
+        run: |
           rss_reader https://feeds.washingtonpost.com/rss/world --limit 2

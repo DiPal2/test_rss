@@ -1,4 +1,4 @@
-"""rss_reader: Reads RSS feed and displays it in various formats"""
+"""Reads RSS feed and displays it in various formats"""
 
 from abc import ABC, abstractmethod
 import argparse
@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "1", "4")
+__version_info__ = ("0", "2", "0")
 __version__ = ".".join(__version_info__)
 
 
