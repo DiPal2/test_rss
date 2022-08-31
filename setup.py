@@ -5,7 +5,7 @@ import sys
 
 from setuptools import setup
 
-assert sys.version_info < (3, 9), "rss_reader requires Python 3.9+"
+assert sys.version_info >= (3, 9), "rss_reader requires Python 3.9+"
 
 def get_version(rel_path):
     """
