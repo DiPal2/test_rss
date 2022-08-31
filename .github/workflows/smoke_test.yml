@@ -35,7 +35,7 @@ jobs:
         continue-on-error: true
 
       - name: Check expected result from install
-        run: python -c "import sys; print(sys.version, ${{ steps.install.outcome }})"
+        run: python -c "import sys; assert sys.version_info >= (3, 9) and '${{ steps.install.outcome }}' == 'success' or sys.version_info < (3, 9) and '${{ steps.install.outcome }}' != 'success' "
 
       - name: Smoke Run
         if: steps.install.outcome == 'success' 
