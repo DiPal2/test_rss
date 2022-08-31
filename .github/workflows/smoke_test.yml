@@ -3,7 +3,7 @@ name: "smoke test"
 on: [push]
 
 jobs:
-  code:
+  smoke:
     name: "Python ${{ matrix.python-version }} on ${{ matrix.os}}"
 
     runs-on: "${{ matrix.os }}"
@@ -35,7 +35,7 @@ jobs:
         continue-on-error: true
 
       - name: Check expected result from install
-        run: python -c "import sys; assert sys.version_info >= (3, 9) and '${{ steps.install.outcome }}' == 'success' or sys.version_info < (3, 9) and '${{ steps.install.outcome }}' != 'success' "
+        run: python -c "import sys; version_supported = sys.version_info >= (3, 9); setup_succeeded = '${{ steps.install.outcome }}' == 'success'; assert version_supported and setup_succeeded or not version_supported and not setup_succeeded"
 
       - name: Smoke Run
         if: steps.install.outcome == 'success' 
