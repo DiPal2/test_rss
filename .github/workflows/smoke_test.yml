@@ -35,7 +35,7 @@ jobs:
         continue-on-error: true
 
       - name: Check expected result from install
-        if: steps.install.outcome != 'success' and ${{ matrix.npm }} != "3.8"
+        if: steps.install.outcome != 'success' and ${{ matrix.python-version }} != "3.8"
         run: exit 1
 
       - name: Smoke Run
