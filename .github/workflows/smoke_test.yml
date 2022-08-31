@@ -30,9 +30,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install App
-        run: |
-          python setup.py install
+        id: install
+        run: python setup.py install
+        continue-on-error: true
+
+      - name: Check expected result from install
+        if: steps.install.outcome != 'success' and ${{ matrix.npm }} != "3.8"
+        run: exit 1
 
       - name: Smoke Run
-        run: |
-          rss_reader https://feeds.washingtonpost.com/rss/world --limit 2
+        if: steps.install.outcome == 'success' 
+        run: rss_reader https://feeds.washingtonpost.com/rss/world --limit 2
