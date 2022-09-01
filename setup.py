@@ -22,7 +22,7 @@ def read_requirements(rel_path):
     """
     Read and parse a file with package requirements
     :param rel_path: a relative path to a file
-    :return: parsed requirements
+    :return: array of strings with required packages
     """
     result = []
     with file_helper(rel_path) as file:
