@@ -69,11 +69,11 @@ pytest
 
 ## Development
 
-To start development you need [ with installed pip and setuptools](https://www.python.org/downloads/).
+To start development you need [Python 3.9 with installed pip and setuptools](https://www.python.org/downloads/).
 
 Install required packages by typing `pip install -e .[develop]` or `pip install -r requirements_dev.txt` in the directory containing the content from this repository.
 
-You can control code style by running the following commands
+You can control code style by running the following commands:
 ```shell
 black --check --diff .
 pycodestyle setup.py rss_reader tests
