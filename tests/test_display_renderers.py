@@ -1,9 +1,9 @@
 """tests for display renders (TextRenderer, JsonRenderer)"""
 
-import os
 import pytest
 
 from rss_reader.rss_reader import TextRenderer, JsonRenderer
+from tests.helpers import read_test_data
 
 
 @pytest.fixture(
@@ -133,11 +133,8 @@ def test_json_renderer_entry_description(file_name, capfd):
     """
     Tests render_entry with a real HTML content in JsonRenderer
     """
-    file_name = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
-    with open(f"{file_name}.html", "r", encoding="utf-8") as file:
-        input_data = file.read().replace("\r\n", "\n")
-    with open(f"{file_name}_json.txt", "r", encoding="utf-8") as file:
-        expected = file.read().replace("\r\n", "\n")
+    input_data = read_test_data(f"{file_name}.html")
+    expected = read_test_data(f"{file_name}_json.txt")
     renderer = JsonRenderer()
     renderer.render_entry({"description": input_data})
     renderer.render_exit()

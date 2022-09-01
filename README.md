@@ -1,4 +1,8 @@
 [![codecov](https://codecov.io/gh/DiPal2/test_rss/branch/main/graph/badge.svg?token=PRS5R979VI)](https://codecov.io/gh/DiPal2/test_rss)
+[![code style](https://github.com/DiPal2/test_rss/actions/workflows/code_style.yml/badge.svg)](https://github.com/DiPal2/test_rss/actions/workflows/code_style.yml)
+[![test](https://github.com/DiPal2/test_rss/actions/workflows/test.yml/badge.svg)](https://github.com/DiPal2/test_rss/actions/workflows/test.yml)
+[![smoke run](https://github.com/DiPal2/test_rss/actions/workflows/smoke_run.yml/badge.svg)](https://github.com/DiPal2/test_rss/actions/workflows/smoke_run.yml)
+
 # rss_reader
 rss_reader is a Python script that reads RSS feed and displays it in various formats.
 
