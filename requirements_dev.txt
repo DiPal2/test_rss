@@ -1,6 +1,4 @@
 pycodestyle>=2.8
-pytest>=6
-pytest-cov>=3
 black>=22
 pylint>=2.14
 mypy>=0.9

@@ -60,4 +60,8 @@ def get_version(rel_path):
 setup(
     version=get_version("rss_reader/rss_reader.py"),
     install_requires=read_requirements("requirements.txt"),
+    extras_require={
+        "develop": read_requirements("requirements_dev.txt"),
+        "tests": read_requirements("requirements_tests.txt"),
+    },
 )
