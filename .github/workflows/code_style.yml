@@ -1,0 +1,45 @@
+name: "code style"
+
+on: [push]
+
+jobs:
+  style:
+    name: "Code style check in Python ${{ matrix.python-version }}"
+
+    runs-on: "${{ matrix.os }}"
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+        python-version:
+          - "3.9"
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install packages
+        run: pip install -r requirements_dev.txt
+
+      - name: Check styles with black
+        run: black --check --diff .
+
+      - name: Check styles with pycodestyle
+        run: pycodestyle setup.py rss_reader tests
+
+      - name: Check styles with pylint
+        run: |
+          pylint rss_reader
+          pylint setup.py --disable=exec-used
+          pylint tests --disable=redefined-outer-name
+
+      - name: Check styles with mypy
+        run: |
+          mypy --disallow-untyped-defs rss_reader
+          mypy setup.py tests

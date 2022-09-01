@@ -27,10 +27,16 @@ def read_requirements(rel_path):
     result = []
     with file_helper(rel_path) as file:
         while True:
-            line = file.readline()
+            line = file.readline().strip()
             if not line:
                 break
-            result.append(line)
+            if line.startswith("#"):
+                continue
+            if line.startswith("-r "):
+                child_req_file = os.path.join(os.path.dirname(rel_path), line[3:].strip())
+                result.extend(read_requirements(child_req_file))
+            else:
+                result.append(line)
     return result
 
 
