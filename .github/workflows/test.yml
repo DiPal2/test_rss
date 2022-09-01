@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   code:
-    name: "Python ${{ matrix.python-version }} on ${{ matrix.os}}"
+    name: "Testing in Python ${{ matrix.python-version }} on ${{ matrix.os}}"
 
     runs-on: "${{ matrix.os }}"
 
@@ -28,7 +28,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install packages
-        run: pip install -r requirements_tests.txt
+        run: pip install -e .[tests]
 
       - name: Test with pytest
         run: pytest --junitxml=junit/test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml --cov-report xml:coverage/coverage-results-${{ matrix.os }}-${{ matrix.python-version }}.xml

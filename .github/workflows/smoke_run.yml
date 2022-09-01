@@ -4,7 +4,7 @@ on: [push]
 
 jobs:
   smoke:
-    name: "Smoke run with Python ${{ matrix.python-version }} on ${{ matrix.os}}"
+    name: "Smoke run in Python ${{ matrix.python-version }} on ${{ matrix.os}}"
 
     runs-on: "${{ matrix.os }}"
 

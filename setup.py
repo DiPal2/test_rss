@@ -33,7 +33,8 @@ def read_requirements(rel_path):
             if line.startswith("#"):
                 continue
             if line.startswith("-r "):
-                child_req_file = os.path.join(os.path.dirname(rel_path), line[3:].strip())
+                dir_path = os.path.dirname(rel_path)
+                child_req_file = os.path.join(dir_path, line[3:].strip())
                 result.extend(read_requirements(child_req_file))
             else:
                 result.append(line)

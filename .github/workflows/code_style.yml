@@ -25,7 +25,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install packages
-        run: pip install -r requirements_dev.txt
+        run: pip install -e .[develop]
 
       - name: Check styles with black
         run: black --check --diff .
