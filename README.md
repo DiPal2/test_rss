@@ -4,14 +4,19 @@
 [![smoke run](https://github.com/DiPal2/test_rss/actions/workflows/smoke_run.yml/badge.svg)](https://github.com/DiPal2/test_rss/actions/workflows/smoke_run.yml)
 
 # rss_reader
+
 rss_reader is a Python script that reads RSS feed and displays it in various formats.
 
 ## Installation
-To start using the script you need [Python 3.9 with installed pip](https://www.python.org/downloads/)
-Type `python setup.py install` or `pip install -e .` in the directory that contains downloaded files.
+
+To start using the script you need [Python 3.9 with installed pip and setuptools](https://www.python.org/downloads/)
+
+Type `python setup.py install` or `pip install -e .` in the directory containing the content from this repository.
+
+After that you can use `rss_reader` from any folder or `rss_reader.py` located in **rss_reader** folder.
 
 ## Usage
-You can use `rss_reader` from any folder or `rss_reader.py` located in **rss_reader** folder of downloaded files.
+
 `rss_reader.py [-h] [--version] [--json] [--verbose] [--limit LIMIT] source`
 
 | Option           | Description
@@ -48,8 +53,9 @@ Example of generated JSON:
 
 ## Testing
 
-To run tests you need [Python 3.9 with installed pip](https://www.python.org/downloads/).
-Type the following commands in the directory that contains downloaded files:
+To run tests you need [Python 3.9 with installed pip and setuptools](https://www.python.org/downloads/).
+
+Type the following commands in the directory containing the content from this repository:
 ```shell
 pip install -e .[tests]
 pytest
@@ -63,8 +69,10 @@ pytest
 
 ## Development
 
-To start development you need [Python 3.9 with installed pip](https://www.python.org/downloads/).
-Install required packages by typing `pip install -e .[develop]` or `pip install -r requirements_dev.txt` in the directory that contains downloaded files.
+To start development you need [ with installed pip and setuptools](https://www.python.org/downloads/).
+
+Install required packages by typing `pip install -e .[develop]` or `pip install -r requirements_dev.txt` in the directory containing the content from this repository.
+
 You can control code style by running the following commands
 ```shell
 black --check --diff .
