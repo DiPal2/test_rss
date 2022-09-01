@@ -1,4 +1,3 @@
--r requirements.txt
 -r requirements_tests.txt
 pycodestyle>=2.8
 black>=22
