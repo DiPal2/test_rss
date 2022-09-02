@@ -174,6 +174,7 @@ def test_json_renderer_entry_description(file_name, capfd):
         ),
     ],
 )
+#pylint: disable=too-many-arguments
 def test_renderer_full(renderer_type, header, entries, expected_j, expected_t, capfd):
     """
     Tests render_entry in renders
