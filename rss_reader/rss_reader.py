@@ -68,6 +68,7 @@ class FeedCache:
     """
     A class used for caching RSS feed content
     """
+
     CACHE_FOLDER = "461ef83d954b475a80334c2135e9115c"
     MAP_FILE = "feeds.bin"
     HEADER_FILE = "header.bin"
