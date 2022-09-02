@@ -7,15 +7,18 @@ from functools import wraps
 import inspect
 import json
 import logging
+from pathlib import Path
+import pickle
 import shutil
 import sys
-from typing import Iterator, Optional, Any
+from typing import Any, Iterable, Iterator, Optional
+import uuid
 import xml.etree.ElementTree as ET
 
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "2", "0")
+__version_info__ = ("0", "3", "0")
 __version__ = ".".join(__version_info__)
 
 
@@ -61,6 +64,73 @@ class NotRssContent(RssReaderError):
     """
 
 
+class FeedCache:
+    """
+    A class used for caching RSS feed content
+    """
+    CACHE_FOLDER = "461ef83d954b475a80334c2135e9115c"
+    MAP_FILE = "feeds.bin"
+    HEADER_FILE = "header.bin"
+
+    def __init__(self) -> None:
+        self._feed: Path
+        self._folder = Path(__file__).parent.resolve() / self.CACHE_FOLDER
+        self._map_file = self._folder / self.MAP_FILE
+        self._folder.mkdir(exist_ok=True)
+        logging.info("Cache folder %s", self._folder)
+
+    @call_logger("file_name")
+    def _save_cache(self, file_name: Path, data: dict[str, str]) -> None:
+        with open(file_name, "wb") as file:
+            pickle.dump(data, file)
+
+    @call_logger("file_name")
+    def _load_cache(self, file_name: Path) -> dict[str, str]:
+        data = {}
+        try:
+            with open(file_name, "rb") as file:
+                result = pickle.load(file)
+                if isinstance(result, dict):
+                    data = result
+                else:
+                    logging.info("Cache %s loaded garbage", file_name)
+        except Exception as ex:  # pylint: disable=broad-except
+            logging.info("Cache load %s raised an exception '%s'", file_name, ex)
+        return data
+
+    def feed(self, url: str) -> None:
+        """
+        Select RSS feed for cache operations
+        :param url: an address
+        :return: Nothing
+        """
+        mapper = self._load_cache(self._map_file)
+        if url not in mapper:
+            cache = uuid.uuid4().hex
+            logging.info("Adding url %s to cache %s", url, cache)
+            mapper[url] = cache
+            self._save_cache(self._map_file, mapper)
+
+        self._feed = self._folder / mapper[url]
+        self._feed.mkdir(exist_ok=True)
+        logging.info("Using url %s with cache: %s", url, self._feed)
+
+    def write_header(self, data: dict[str, str]) -> None:
+        """
+        Writes RSS header in cache
+        :param data: a dictionary with RSS header items
+        :return: Nothing
+        """
+        self._save_cache(self._feed / self.HEADER_FILE, data)
+
+    def write_entry(self, data: dict[str, str]) -> None:
+        """
+        Writes RSS entry element in cache
+        :param data: a dictionary with RSS entry element
+        :return: Nothing
+        """
+
+
 class FeedToDict:
     """
     A class used for converting RSS feed content to Iterable dictionaries
@@ -70,7 +140,7 @@ class FeedToDict:
 
     _FEED_ITEM = "item"
 
-    def __init__(self, content: str, maximum: int):
+    def __init__(self, content: str, maximum: int, cache: Optional[FeedCache] = None):
         """
         Init a feed and constructs all the necessary attributes
         :param content: string that contains RSS feed
@@ -81,6 +151,7 @@ class FeedToDict:
         self._num: int
         self._iter: Generator[ET.Element, None, None]
         self._max = maximum
+        self._cache = cache
         logging.info("Feed started parsing")
         try:
             root = ET.fromstring(content)
@@ -95,34 +166,40 @@ class FeedToDict:
 
     def _xml_children_to_dict(
         self, xml_element: ET.Element, stop_element_name: Optional[str] = None
-    ) -> dict:
-        result = {}
+    ) -> dict[str, str]:
+        result: dict[str, str] = {}
         for child in xml_element:
             if stop_element_name and child.tag == stop_element_name:
                 break
             logging.info("XML: %s [%s] with %s", child.tag, child.text, child.attrib)
             key = self._REMAP_FIELDS.get(child.tag, child.tag)
-            result[key] = child.text
+            if child.text:
+                result[key] = child.text
         return result
 
     @property
-    def feed_info(self) -> dict:
+    def feed_info(self) -> dict[str, str]:
         """
         Feed header info
         :return: a dictionary with header elements
         """
-        return self._xml_children_to_dict(self._feed, self._FEED_ITEM)
+        result = self._xml_children_to_dict(self._feed, self._FEED_ITEM)
+        if self._cache:
+            self._cache.write_header(result)
+        return result
 
     def __iter__(self) -> Iterator:
         self._num = 0
         self._iter = self._feed.iter(self._FEED_ITEM)
         return self
 
-    def __next__(self) -> dict:
+    def __next__(self) -> dict[str, str]:
         if self._max == 0 or self._num < self._max:
-            item = self._iter.__next__()
+            result = self._xml_children_to_dict(self._iter.__next__())
             self._num += 1
-            return self._xml_children_to_dict(item)
+            if self._cache:
+                self._cache.write_entry(result)
+            return result
         raise StopIteration
 
 
@@ -149,7 +226,7 @@ class AbstractRenderer(ABC):
         return self._html.handle(value)[:-2]
 
     def _render_fields(
-        self, fields: tuple, data: dict, processor: Callable[[str, str], None]
+        self, fields: tuple, data: dict[str, str], processor: Callable[[str, str], None]
     ) -> None:
         for field in fields:
             if field in data:
@@ -158,18 +235,18 @@ class AbstractRenderer(ABC):
 
     @call_logger("data")
     def _render_header_fields(
-        self, data: dict, processor: Callable[[str, str], None]
+        self, data: dict[str, str], processor: Callable[[str, str], None]
     ) -> None:
         self._render_fields(self.FEED_FIELDS, data, processor)
 
     @call_logger("data")
     def _render_entry_fields(
-        self, data: dict, processor: Callable[[str, str], None]
+        self, data: dict[str, str], processor: Callable[[str, str], None]
     ) -> None:
         self._render_fields(self.ENTRY_FIELDS, data, processor)
 
     @abstractmethod
-    def render_header(self, data: dict) -> None:
+    def render_header(self, data: dict[str, str]) -> None:
         """
         Render feed header
         :param data: a dictionary with header elements
@@ -178,10 +255,10 @@ class AbstractRenderer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def render_entry(self, data: dict) -> None:
+    def render_entries(self, entries: Iterable[dict[str, str]]) -> None:
         """
         Render feed entry
-        :param data: a dictionary with entry elements
+        :param entries: an iterable with dictionaries containing entry elements
         :return: Nothing
         """
         raise NotImplementedError
@@ -211,17 +288,18 @@ class TextRenderer(AbstractRenderer):
             "description": "\n{}",
         }
 
-    def render_header(self, data: dict) -> None:
+    def render_header(self, data: dict[str, str]) -> None:
         def processor(key: str, value: str) -> None:
             print(self._header_formats[key].format(value))
 
         self._render_header_fields(data, processor)
 
-    def render_entry(self, data: dict) -> None:
+    def render_entries(self, entries: Iterable[dict[str, str]]) -> None:
         def processor(key: str, value: str) -> None:
             print(self._entry_formats[key].format(value))
 
-        self._render_entry_fields(data, processor)
+        for data in entries:
+            self._render_entry_fields(data, processor)
 
     def render_exit(self) -> None:
         pass
@@ -235,9 +313,8 @@ class JsonRenderer(AbstractRenderer):
     def __init__(self) -> None:
         super().__init__()
         self._json: dict = {}
-        self._json_entries: list = []
 
-    def render_header(self, data: dict) -> None:
+    def render_header(self, data: dict[str, str]) -> None:
         result = {}
 
         def processor(key: str, value: str) -> None:
@@ -246,17 +323,20 @@ class JsonRenderer(AbstractRenderer):
         self._render_header_fields(data, processor)
         self._json.update(result)
 
-    def render_entry(self, data: dict) -> None:
-        result = {}
+    def render_entries(self, entries: Iterable[dict[str, str]]) -> None:
+        final = []
 
         def processor(key: str, value: str) -> None:
             result[key] = value
 
-        self._render_entry_fields(data, processor)
-        self._json_entries.append(result)
+        for data in entries:
+            result: dict = {}
+            self._render_entry_fields(data, processor)
+            final.append(result)
+
+        self._json["entries"] = final
 
     def render_exit(self) -> None:
-        self._json["entries"] = self._json_entries
         print(json.dumps(self._json))
 
 
@@ -285,12 +365,13 @@ def feed_processor(url: str, limit: int = 0, is_json: bool = False) -> None:
     :param is_json: should data be displayed in JSON format
     :return: Nothing
     """
+    cache = FeedCache()
     content = url_loader(url)
-    feed = FeedToDict(content, limit)
+    cache.feed(url)
+    feed = FeedToDict(content, limit, cache)
     renderer = JsonRenderer() if is_json else TextRenderer()
     renderer.render_header(feed.feed_info)
-    for item in feed:
-        renderer.render_entry(item)
+    renderer.render_entries(feed)
     renderer.render_exit()
 
 
@@ -335,7 +416,7 @@ def main() -> None:
     except NotRssContent:
         print("Error happened as there is no RSS at", args.url)
     except Exception as ex:
-        logging.info("Exception was raised %s", ex)
+        logging.info("Exception was raised '%s'", ex)
         print("Error happened during program execution.")
         raise
 
