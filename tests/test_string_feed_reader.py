@@ -3,7 +3,7 @@
 import json
 import pytest
 
-from rss_reader.rss_reader import FeedToDict, NotRssContent
+from rss_reader.rss_reader import StringFeedReader, NotRssContent
 from tests.helpers import read_test_data
 
 
@@ -18,18 +18,17 @@ from tests.helpers import read_test_data
         pytest.param("usatoday", "GANNETT Syndication Service", id="usatoday"),
     ],
 )
-def test_feed_to_dict(file_name, expected_title):
+def test_string_feed_reader(file_name, expected_title):
     """
-    Test header and 1st element in FeedToDict with real examples
+    Test header and 1st element in StringFeedReader with real examples
     """
     input_data = read_test_data(f"{file_name}.xml")
     expected_first_item = json.loads(read_test_data(f"{file_name}_first.json"))
-    feed = FeedToDict(input_data, 0)
-    header = feed.feed_info
+    feed = StringFeedReader(input_data)
+    header = feed.read_header()
     assert header["title"] == expected_title
-    for item in feed:
-        assert item | expected_first_item == item
-        break
+    item = next(feed)
+    assert item | expected_first_item == item
 
 
 @pytest.mark.parametrize(
@@ -54,9 +53,9 @@ def test_feed_to_dict(file_name, expected_title):
         ),
     ],
 )
-def test_feed_to_dict_exception(content):
+def test_string_feed_reader_exception(content):
     """
-    Test FeedToDict with non-RSS content
+    Test StringFeedReader with non-RSS content
     """
     with pytest.raises(NotRssContent):
-        FeedToDict(content, 0)
+        StringFeedReader(content)

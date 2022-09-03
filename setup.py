@@ -57,7 +57,7 @@ def get_version(rel_path):
             if line.startswith("__version"):
                 code += line
     if code:
-        exec(code, version)
+        exec(code, version)  # pylint: disable=exec-used
     result = version.get("__version__", "")
     if not result:
         raise RuntimeError(f"There is no version information in {rel_path}")
