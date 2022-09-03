@@ -65,7 +65,7 @@ class NotRssContent(RssReaderError):
     """
 
 
-class FeedContentReader(ABC, Iterator):
+class FeedReader(ABC, Iterator):
     """
     An abstract class used to read feed from various sources
     """
@@ -90,7 +90,7 @@ class FeedContentReader(ABC, Iterator):
         raise NotImplementedError
 
 
-class StringFeedReader(FeedContentReader):
+class StringFeedReader(FeedReader):
     """
     A class used to read feed from a string
     """
@@ -159,7 +159,7 @@ class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
         super().__init__(request.text)
 
 
-class FeedWriteCache(ABC):
+class CacheFeedWriter(ABC):
     """
     An abstract class used to write feed in cache
     """
@@ -183,9 +183,9 @@ class FeedWriteCache(ABC):
         raise NotImplementedError
 
 
-class FeedFileCache:  # pylint: disable=too-few-public-methods
+class FileCacheFeedHelper:  # pylint: disable=too-few-public-methods
     """
-    A class used to work with file cache
+    A class used to work with file cache for feeds
     """
 
     CACHE_FOLDER = "461ef83d954b475a80334c2135e9115c"
@@ -223,13 +223,13 @@ class FeedFileCache:  # pylint: disable=too-few-public-methods
             mapper[url] = cache_folder
             self._save_cache(self._map_file, mapper)
 
-        feed_path = self._folder / mapper[url]
+        feed_path: Path = self._folder / mapper[url]
         logging.info("Using url %s with cache: %s", url, feed_path)
         feed_path.mkdir(exist_ok=True)
         return feed_path
 
 
-class FeedWriteFileCache(FeedFileCache, FeedWriteCache):
+class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
     """
     A class used to write feed content to file cache
     """
@@ -249,7 +249,7 @@ class FeedWriteFileCache(FeedFileCache, FeedWriteCache):
         pass
 
 
-class FeedReadFileCache(FeedFileCache, FeedContentReader):
+class FileCacheFeedReader(FileCacheFeedHelper, FeedReader):
     """
     A class used to read feed content from file cache
     """
@@ -265,7 +265,8 @@ class FeedReadFileCache(FeedFileCache, FeedContentReader):
         self._date_filter = date_filter
 
     def read_header(self) -> dict[str, str]:
-        return self._load_cache(self._feed / self.HEADER_FILE)
+        result: dict[str, str] = self._load_cache(self._feed / self.HEADER_FILE)
+        return result
 
     def __next__(self) -> dict[str, str]:
         raise StopIteration
@@ -278,9 +279,9 @@ class ContentIterator(Iterator):
 
     def __init__(
         self,
-        content_reader: FeedContentReader,
+        content_reader: FeedReader,
         maximum: Optional[int] = None,
-        write_cache: Optional[FeedWriteCache] = None,
+        write_cache: Optional[CacheFeedWriter] = None,
     ):
         """
         Constructs all the necessary attributes
@@ -471,9 +472,9 @@ def feed_processor(
     :return: Nothing
     """
     if date_filter:
-        feed = ContentIterator(FeedReadFileCache(date_filter, url), limit)
+        feed = ContentIterator(FileCacheFeedReader(date_filter, url), limit)
     else:
-        feed = ContentIterator(WebFeedReader(url), limit, FeedWriteFileCache(url))
+        feed = ContentIterator(WebFeedReader(url), limit, FileCacheFeedWriter(url))
     renderer = JsonRenderer() if is_json else TextRenderer()
     renderer.render_header(feed.feed_info)
     renderer.render_entries(feed)
