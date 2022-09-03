@@ -7,12 +7,13 @@ from tests.helpers import read_test_data
 
 
 @pytest.fixture(
+    name="renderer_type",
     params=[
         pytest.param("text", id="TextRenderer"),
         pytest.param("json", id="JsonRenderer"),
-    ]
+    ],
 )
-def renderer_type(request):
+def fixture_renderer_type(request):
     """
     A fixture for all supported renders
     """

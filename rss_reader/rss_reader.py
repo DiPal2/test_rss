@@ -2,7 +2,8 @@
 
 from abc import ABC, abstractmethod
 import argparse
-from collections.abc import Callable, Generator, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from datetime import date, datetime
 from functools import wraps
 import inspect
 import json
@@ -66,7 +67,7 @@ class NotRssContent(RssReaderError):
 
 class FeedContentReader(ABC, Iterator):
     """
-    An abstract class used to read feed
+    An abstract class used to read feed from various sources
     """
 
     @abstractmethod
@@ -82,10 +83,17 @@ class FeedContentReader(ABC, Iterator):
 
     @abstractmethod
     def __next__(self) -> dict[str, str]:
+        """
+        Reads next feed entry
+        :return: a dictionary with entry elements
+        """
         raise NotImplementedError
 
 
 class StringFeedReader(FeedContentReader):
+    """
+    A class used to read feed from a string
+    """
 
     _REMAP_FIELDS = {"pubDate": "published"}
 
@@ -130,10 +138,14 @@ class StringFeedReader(FeedContentReader):
         return self._xml_children_to_dict(self._iter.__next__())
 
 
-class WebFeedReader(StringFeedReader):
+class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
+    """
+    A class used to read feed from a web URL
+    """
+
     def __init__(self, url: str):
         """
-        Init feed reading from web url and constructs all the necessary attributes
+        Load web URL content and init feed reading from it
         :param url: an address of a feed
         :raise ContentUnreachable
         """
@@ -171,22 +183,20 @@ class FeedWriteCache(ABC):
         raise NotImplementedError
 
 
-class FileFeedCache(FeedContentReader, FeedWriteCache):
+class FeedFileCache:  # pylint: disable=too-few-public-methods
     """
-    A class used for caching RSS feed content
+    A class used to work with file cache
     """
 
     CACHE_FOLDER = "461ef83d954b475a80334c2135e9115c"
     MAP_FILE = "feeds.bin"
     HEADER_FILE = "header.bin"
 
-    def __init__(self, url: str) -> None:
-        self._feed: Path
+    def __init__(self) -> None:
         self._folder = Path(__file__).parent.resolve() / self.CACHE_FOLDER
         self._map_file = self._folder / self.MAP_FILE
         self._folder.mkdir(exist_ok=True)
         logging.info("Cache folder %s", self._folder)
-        self.feed(url)
 
     @call_logger("file_name")
     def _save_cache(self, file_name: Path, data: dict[str, str]) -> None:
@@ -205,22 +215,32 @@ class FileFeedCache(FeedContentReader, FeedWriteCache):
             logging.info("Cache load %s raised an exception '%s'", file_name, ex)
         return {}
 
-    def feed(self, url: str) -> None:
-        """
-        Select RSS feed for cache operations
-        :param url: an address
-        :return: Nothing
-        """
+    def _feed_to_path(self, url: str) -> Path:
         mapper = self._load_cache(self._map_file)
         if url not in mapper:
-            cache = uuid.uuid4().hex
-            logging.info("Adding url %s to cache %s", url, cache)
-            mapper[url] = cache
+            cache_folder = uuid.uuid4().hex
+            logging.info("Adding url %s to cache %s", url, cache_folder)
+            mapper[url] = cache_folder
             self._save_cache(self._map_file, mapper)
 
-        self._feed = self._folder / mapper[url]
-        self._feed.mkdir(exist_ok=True)
-        logging.info("Using url %s with cache: %s", url, self._feed)
+        feed_path = self._folder / mapper[url]
+        logging.info("Using url %s with cache: %s", url, feed_path)
+        feed_path.mkdir(exist_ok=True)
+        return feed_path
+
+
+class FeedWriteFileCache(FeedFileCache, FeedWriteCache):
+    """
+    A class used to write feed content to file cache
+    """
+
+    def __init__(self, url: str) -> None:
+        """
+        Init feed cache for writing
+        :param url: an address of a feed
+        """
+        super().__init__()
+        self._feed = self._feed_to_path(url)
 
     def write_header(self, data: dict[str, str]) -> None:
         self._save_cache(self._feed / self.HEADER_FILE, data)
@@ -228,11 +248,27 @@ class FileFeedCache(FeedContentReader, FeedWriteCache):
     def write_entry(self, data: dict[str, str]) -> None:
         pass
 
+
+class FeedReadFileCache(FeedFileCache, FeedContentReader):
+    """
+    A class used to read feed content from file cache
+    """
+
+    def __init__(self, date_filter: date, url: str) -> None:
+        """
+        Init feed cache for reading
+        :param date_filter: a filter for published date
+        :param url: an address of a feed
+        """
+        super().__init__()
+        self._feed = self._feed_to_path(url)
+        self._date_filter = date_filter
+
     def read_header(self) -> dict[str, str]:
         return self._load_cache(self._feed / self.HEADER_FILE)
 
     def __next__(self) -> dict[str, str]:
-        raise NotImplementedError
+        raise StopIteration
 
 
 class ContentIterator(Iterator):
@@ -243,20 +279,19 @@ class ContentIterator(Iterator):
     def __init__(
         self,
         content_reader: FeedContentReader,
-        maximum: int,
+        maximum: Optional[int] = None,
         write_cache: Optional[FeedWriteCache] = None,
     ):
         """
         Constructs all the necessary attributes
         :param content_reader: a FeedContentReader class for traversing through feed
-        :param maximum: an int that limits processing of items in the feed
-                        (0 means no limit)
+        :param maximum: an int that limits processing of items in the feed (optional)
         :param write_cache: a FeedWriteCache class for storing data in cache (optional)
         :raise NotRssContent
         """
         self._num = 0
         self._content_reader = content_reader
-        self._max = maximum
+        self._max = None if maximum == 0 else maximum
         self._write_cache = write_cache
 
     @property
@@ -275,7 +310,7 @@ class ContentIterator(Iterator):
         return self
 
     def __next__(self) -> dict[str, str]:
-        if self._max == 0 or self._num < self._max:
+        if not self._max or self._num < self._max:
             result = self._content_reader.__next__()
             self._num += 1
             if self._write_cache:
@@ -421,18 +456,24 @@ class JsonRenderer(AbstractRenderer):
         print(json.dumps(self._json))
 
 
-def feed_processor(url: str, limit: int = 0, is_json: bool = False) -> None:
+def feed_processor(
+    url: str,
+    limit: Optional[int] = None,
+    is_json: bool = False,
+    date_filter: Optional[date] = None,
+) -> None:
     """
     Performs loading and displaying of the RSS feed
     :param url: an address of the RSS feed
-    :param limit: an int that limits processing of items in the feed
-                 (0 means no limit)
+    :param limit: an int that limits processing of items in the feed (0 means no limit)
     :param is_json: should data be displayed in JSON format
+    :param date_filter: should cache be used to filter by published date
     :return: Nothing
     """
-    cache = FileFeedCache(url)
-    request = requests.get(url, timeout=600)
-    feed = ContentIterator(StringFeedReader(request.text), limit, cache)
+    if date_filter:
+        feed = ContentIterator(FeedReadFileCache(date_filter, url), limit)
+    else:
+        feed = ContentIterator(WebFeedReader(url), limit, FeedWriteFileCache(url))
     renderer = JsonRenderer() if is_json else TextRenderer()
     renderer.render_header(feed.feed_info)
     renderer.render_entries(feed)
@@ -449,6 +490,13 @@ def main() -> None:
         if result < 0:
             raise argparse.ArgumentTypeError(f"{value} is not a non-negative int value")
         return result
+
+    def check_date(value: str) -> date:
+        try:
+            return datetime.strptime(value, "%Y%m%d").date()
+        except ValueError as exc:
+            msg = f"{value} is not a date in YYYYMMDD format"
+            raise argparse.ArgumentTypeError(msg) from exc
 
     parser = argparse.ArgumentParser(description="Pure Python command-line RSS reader.")
     parser.add_argument("url", metavar="source", type=str, help="RSS URL")
@@ -469,12 +517,18 @@ def main() -> None:
         type=check_non_negative,
         help="Limit news topics if this parameter provided",
     )
+    parser.add_argument(
+        "--date",
+        metavar="DATE",
+        type=check_date,
+        help="Limit news to only cached data with such published date (YYYYMMDD)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(format="%(asctime)s %(message)s", level=args.log_level)
 
     try:
-        feed_processor(args.url, args.limit or 0, args.json)
+        feed_processor(args.url, args.limit, args.json, args.date)
     except ContentUnreachable:
         print("Error happened as content cannot be loaded from", args.url)
     except NotRssContent:

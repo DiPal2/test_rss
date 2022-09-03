@@ -34,10 +34,7 @@ jobs:
         run: pycodestyle setup.py rss_reader tests
 
       - name: Check styles with pylint
-        run: |
-          pylint rss_reader
-          pylint setup.py --disable=exec-used
-          pylint tests --disable=redefined-outer-name
+        run: pylint setup.py rss_reader tests
 
       - name: Check styles with mypy
         run: |
