@@ -11,8 +11,12 @@ assert sys.version_info >= (3, 9), "rss_reader requires Python 3.9+"
 def file_helper(rel_path):
     """
     Init file in a relative path for reading
-    :param rel_path: a relative path to a file
-    :return: a file handler
+
+    :param rel_path:
+        a relative path to a file
+
+    :return:
+        a file handler
     """
     here = os.path.abspath(os.path.dirname(__file__))
     return open(os.path.join(here, rel_path), "r", encoding="utf-8")
@@ -21,8 +25,12 @@ def file_helper(rel_path):
 def read_requirements(rel_path):
     """
     Read and parse a file with package requirements
-    :param rel_path: a relative path to a file
-    :return: array of strings with required packages
+
+    :param rel_path:
+        a relative path to a file
+
+    :return:
+        array of strings with required packages
     """
     result = []
     with file_helper(rel_path) as file:
@@ -44,8 +52,12 @@ def read_requirements(rel_path):
 def get_version(rel_path):
     """
     Get version from python file
-    :param rel_path: a relative path to python file with version info
-    :return: a version info
+
+    :param rel_path:
+        a relative path to python file with version info
+
+    :return:
+        a version info
     """
     code = ""
     version = {}

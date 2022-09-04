@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 import argparse
 from collections.abc import Callable, Iterable, Iterator
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 from functools import wraps
 import inspect
 import json
@@ -16,18 +16,23 @@ from typing import Any, Optional
 import uuid
 import xml.etree.ElementTree as ET
 
+import dateparser
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "3", "0")
+__version_info__ = ("0", "3", "1")
 __version__ = ".".join(__version_info__)
 
 
 def call_logger(*args_to_log: str) -> Callable:
     """
     Decorator to log function call with arguments of interest
-    :param args_to_log: names of arguments to be shown
-    :return: decorator
+
+    :param args_to_log:
+        names of arguments to be shown
+
+    :return:
+        decorator
     """
 
     def decorate(func: Callable) -> Callable:
@@ -74,7 +79,9 @@ class FeedReader(ABC, Iterator):
     def read_header(self) -> dict[str, str]:
         """
         Reads feed header
-        :return: a dictionary with header elements
+
+        :return:
+            a dictionary with header elements
         """
         raise NotImplementedError
 
@@ -85,7 +92,9 @@ class FeedReader(ABC, Iterator):
     def __next__(self) -> dict[str, str]:
         """
         Reads next feed entry
-        :return: a dictionary with entry elements
+
+        :return:
+            a dictionary with entry elements
         """
         raise NotImplementedError
 
@@ -102,8 +111,12 @@ class StringFeedReader(FeedReader):
     def __init__(self, content: str):
         """
         Init feed reading from string and constructs all the necessary attributes
-        :param content: a string with feed content
-        :raise NotRssContent
+
+        :param content:
+            a string with feed content
+
+        :raises NotRssContent:
+            raised for non-RSS content
         """
         logging.info("Feed started parsing from string")
         try:
@@ -146,8 +159,12 @@ class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
     def __init__(self, url: str):
         """
         Load web URL content and init feed reading from it
-        :param url: an address of a feed
-        :raise ContentUnreachable
+
+        :param url:
+            an address of a feed
+
+        :raises ContentUnreachable:
+            raised when content cannot be loaded
         """
         logging.info("Loading feed content from %s", url)
         try:
@@ -168,8 +185,12 @@ class CacheFeedWriter(ABC):
     def write_header(self, data: dict[str, str]) -> None:
         """
         Writes feed header in cache
-        :param data: a dictionary with feed header items
-        :return: Nothing
+
+        :param data:
+            a dictionary with feed header items
+
+        :return:
+            Nothing
         """
         raise NotImplementedError
 
@@ -177,20 +198,28 @@ class CacheFeedWriter(ABC):
     def write_entry(self, data: dict[str, str]) -> None:
         """
         Writes feed entry element in cache
-        :param data: a dictionary with feed entry element
-        :return: Nothing
+
+        :param data:
+            a dictionary with feed entry element
+
+        :return:
+            Nothing
         """
         raise NotImplementedError
 
 
-class FileCacheFeedHelper:  # pylint: disable=too-few-public-methods
+class FileCacheFeedHelper(ABC):  # pylint: disable=too-few-public-methods
     """
-    A class used to work with file cache for feeds
+    An abstract class used to work with file cache for feeds
     """
 
     CACHE_FOLDER = "461ef83d954b475a80334c2135e9115c"
     MAP_FILE = "feeds.bin"
     HEADER_FILE = "header.bin"
+    ENTRIES_MAP_FILE = "entries.bin"
+    ENTRY_FILE_FORMAT = "data_{guid}.bin"
+    GUID_FIELD = "guid"
+    PARTITION_FIELD = "published"
 
     def __init__(self) -> None:
         self._folder = Path(__file__).parent.resolve() / self.CACHE_FOLDER
@@ -199,12 +228,12 @@ class FileCacheFeedHelper:  # pylint: disable=too-few-public-methods
         logging.info("Cache folder %s", self._folder)
 
     @call_logger("file_name")
-    def _save_cache(self, file_name: Path, data: dict[str, str]) -> None:
+    def _save_cache(self, file_name: Path, data: dict) -> None:
         with open(file_name, "wb") as file:
             pickle.dump(data, file)
 
     @call_logger("file_name")
-    def _load_cache(self, file_name: Path) -> dict[str, str]:
+    def _load_cache(self, file_name: Path) -> dict:
         try:
             with open(file_name, "rb") as file:
                 result = pickle.load(file)
@@ -228,6 +257,36 @@ class FileCacheFeedHelper:  # pylint: disable=too-few-public-methods
         feed_path.mkdir(exist_ok=True)
         return feed_path
 
+    def _entry_partition_name(self, data: dict) -> Optional[datetime]:
+        if self.PARTITION_FIELD not in data:
+            return None
+        value = data[self.PARTITION_FIELD]
+        parsed = dateparser.parse(value)
+        logging.info("Raw datetime [%s] parsed as %s", value, parsed)
+        return parsed
+
+    def _load_entries_map(self, feed_path: Path) -> dict:
+        entries_map: dict = self._load_cache(feed_path / self.ENTRIES_MAP_FILE)
+        return entries_map
+
+    def _save_entries_map(self, feed_path: Path, data: dict) -> None:
+        entries_map = feed_path / self.ENTRIES_MAP_FILE
+        self._save_cache(entries_map, data)
+
+    def _save_new_entry(self, feed_path: Path, data: dict) -> None:
+        mapper = self._load_entries_map(feed_path)
+        guid = data.get(self.GUID_FIELD, "")
+        if guid in mapper:
+            logging.info("Entry %s exists in cache: %s", guid, mapper[guid][0])
+            return
+
+        file_name = self.ENTRY_FILE_FORMAT.format(guid=uuid.uuid4().hex)
+        full_file_name = feed_path / file_name
+        self._save_cache(full_file_name, data)
+        logging.info("Adding entry %s to cache %s", guid, file_name)
+        mapper[guid] = (file_name, self._entry_partition_name(data))
+        self._save_entries_map(feed_path, mapper)
+
 
 class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
     """
@@ -237,7 +296,9 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
     def __init__(self, url: str) -> None:
         """
         Init feed cache for writing
-        :param url: an address of a feed
+
+        :param url:
+            an address of a feed
         """
         super().__init__()
         self._feed = self._feed_to_path(url)
@@ -246,7 +307,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
         self._save_cache(self._feed / self.HEADER_FILE, data)
 
     def write_entry(self, data: dict[str, str]) -> None:
-        pass
+        self._save_new_entry(self._feed, data)
 
 
 class FileCacheFeedReader(FileCacheFeedHelper, FeedReader):
@@ -257,19 +318,32 @@ class FileCacheFeedReader(FileCacheFeedHelper, FeedReader):
     def __init__(self, date_filter: date, url: str) -> None:
         """
         Init feed cache for reading
-        :param date_filter: a filter for published date
-        :param url: an address of a feed
+
+        :param date_filter:
+            a filter for published date
+
+        :param url:
+            an address of a feed
         """
         super().__init__()
         self._feed = self._feed_to_path(url)
-        self._date_filter = date_filter
+        self._mapper = self._load_entries_map(self._feed)
+        local_tz = datetime.now(timezone.utc).astimezone().tzinfo
+        date_from = datetime.combine(date_filter, time.min, local_tz)
+        date_to = date_from + timedelta(days=1)
+        self._iter = filter(
+            lambda item: date_from <= item[1][1] < date_to, self._mapper.items()
+        )
 
     def read_header(self) -> dict[str, str]:
         result: dict[str, str] = self._load_cache(self._feed / self.HEADER_FILE)
         return result
 
     def __next__(self) -> dict[str, str]:
-        raise StopIteration
+        result = self._iter.__next__()
+        logging.info("Cache loading from %s", result)
+        data: dict = self._load_cache(self._feed / result[1][0])
+        return data
 
 
 class ContentIterator(Iterator):
@@ -285,10 +359,15 @@ class ContentIterator(Iterator):
     ):
         """
         Constructs all the necessary attributes
-        :param content_reader: a FeedContentReader class for traversing through feed
-        :param maximum: an int that limits processing of items in the feed (optional)
-        :param write_cache: a FeedWriteCache class for storing data in cache (optional)
-        :raise NotRssContent
+
+        :param content_reader:
+            a FeedContentReader class for traversing through feed
+
+        :param maximum:
+            an int that limits processing of items in the feed (optional)
+
+        :param write_cache:
+            a FeedWriteCache class for storing data in cache (optional)
         """
         self._num = 0
         self._content_reader = content_reader
@@ -299,7 +378,9 @@ class ContentIterator(Iterator):
     def feed_info(self) -> dict[str, str]:
         """
         Feed header info
-        :return: a dictionary with header elements
+
+        :return:
+            a dictionary with header elements
         """
         result = self._content_reader.read_header()
         if self._write_cache:
@@ -366,8 +447,12 @@ class AbstractRenderer(ABC):
     def render_header(self, data: dict[str, str]) -> None:
         """
         Render feed header
-        :param data: a dictionary with header elements
-        :return: Nothing
+
+        :param data:
+            a dictionary with header elements
+
+        :return:
+            Nothing
         """
         raise NotImplementedError
 
@@ -375,8 +460,12 @@ class AbstractRenderer(ABC):
     def render_entries(self, entries: Iterable[dict[str, str]]) -> None:
         """
         Render feed entry
-        :param entries: an iterable with dictionaries containing entry elements
-        :return: Nothing
+
+        :param entries:
+            an iterable with dictionaries containing entry elements
+
+        :return:
+            Nothing
         """
         raise NotImplementedError
 
@@ -384,7 +473,9 @@ class AbstractRenderer(ABC):
     def render_exit(self) -> None:
         """
         Finish rendering
-        :return: Nothing
+
+        :return:
+            Nothing
         """
         raise NotImplementedError
 
@@ -465,11 +556,21 @@ def feed_processor(
 ) -> None:
     """
     Performs loading and displaying of the RSS feed
-    :param url: an address of the RSS feed
-    :param limit: an int that limits processing of items in the feed (0 means no limit)
-    :param is_json: should data be displayed in JSON format
-    :param date_filter: should cache be used to filter by published date
-    :return: Nothing
+
+    :param url:
+        an address of the RSS feed
+
+    :param limit:
+        an int that limits processing of items in the feed (0 means no limit)
+
+    :param is_json:
+        should data be displayed in JSON format
+
+    :param date_filter:
+        should cache be used to filter by published date
+
+    :return:
+        Nothing
     """
     if date_filter:
         feed = ContentIterator(FileCacheFeedReader(date_filter, url), limit)
