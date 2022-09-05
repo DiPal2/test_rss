@@ -130,6 +130,3 @@ dmypy.json
 
 # GUI
 .idea
-
-# app cache
-rss_reader/461ef83d954b475a80334c2135e9115c

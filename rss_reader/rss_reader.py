@@ -20,7 +20,7 @@ import dateparser
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "3", "1")
+__version_info__ = ("0", "3", "2")
 __version__ = ".".join(__version_info__)
 
 
@@ -38,14 +38,15 @@ def call_logger(*args_to_log: str) -> Callable:
     def decorate(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            arg_names = inspect.getfullargspec(func).args
-            args_repr = [
-                f"{k}={v!r}" for k, v in zip(arg_names, args) if k in args_to_log
-            ]
+            arg_with_names = zip(inspect.getfullargspec(func).args, args)
+            args_repr = [f"{k}={v!r}" for k, v in arg_with_names if k in args_to_log]
             kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items() if k in args_to_log]
             all_args_repr = ", ".join(args_repr + kwargs_repr)
             logging.info("%s called with %s", func.__name__, all_args_repr)
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            if result:
+                logging.info("%s returned %s", func.__name__, result)
+            return result
 
         return wrapper
 
@@ -213,24 +214,46 @@ class FileCacheFeedHelper(ABC):  # pylint: disable=too-few-public-methods
     An abstract class used to work with file cache for feeds
     """
 
-    CACHE_FOLDER = "461ef83d954b475a80334c2135e9115c"
+    CACHE_FOLDER = "rss_reader"
     MAP_FILE = "feeds.bin"
     HEADER_FILE = "header.bin"
     ENTRIES_MAP_FILE = "entries.bin"
     ENTRY_FILE_FORMAT = "data_{guid}.bin"
     GUID_FIELD = "guid"
-    PARTITION_FIELD = "published"
+    DATETIME_FIELD = "published"
 
     def __init__(self) -> None:
-        self._folder = Path(__file__).parent.resolve() / self.CACHE_FOLDER
+        home = Path.home()
+        if sys.platform.startswith("win"):
+            cache_dir = home / "AppData" / "Roaming"
+        elif sys.platform.startswith("darwin"):
+            cache_dir = home / "Library" / "Application Support"
+        else:
+            cache_dir = home / ".local" / "share"
+        self._folder = cache_dir / self.CACHE_FOLDER
+        self._folder.mkdir(parents=True, exist_ok=True)
         self._map_file = self._folder / self.MAP_FILE
-        self._folder.mkdir(exist_ok=True)
         logging.info("Cache folder %s", self._folder)
 
     @call_logger("file_name")
     def _save_cache(self, file_name: Path, data: dict) -> None:
         with open(file_name, "wb") as file:
             pickle.dump(data, file)
+
+    @call_logger("file_name")
+    def _with_cache(self, file_name: Path, processor: Callable[[dict], bool]) -> None:
+        file_name.touch(exist_ok=True)
+        with open(file_name, "rb+") as file:
+            data = {}
+            try:
+                data = pickle.load(file)
+            except Exception as ex:  # pylint: disable=broad-except
+                logging.info("Pickle load %s raised an exception '%s'", file_name, ex)
+            if not isinstance(data, dict):
+                logging.info("Cache %s loaded garbage", file_name)
+                data = {}
+            if processor(data):
+                pickle.dump(data, file)
 
     @call_logger("file_name")
     def _load_cache(self, file_name: Path) -> dict:
@@ -245,22 +268,29 @@ class FileCacheFeedHelper(ABC):  # pylint: disable=too-few-public-methods
         return {}
 
     def _feed_to_path(self, url: str) -> Path:
-        mapper = self._load_cache(self._map_file)
-        if url not in mapper:
+        cache_folder: str
+
+        def processor(mapper: dict) -> bool:
+            nonlocal cache_folder
+            if url in mapper:
+                cache_folder = mapper[url]
+                return False
             cache_folder = uuid.uuid4().hex
             logging.info("Adding url %s to cache %s", url, cache_folder)
             mapper[url] = cache_folder
-            self._save_cache(self._map_file, mapper)
+            return True
 
-        feed_path: Path = self._folder / mapper[url]
+        self._with_cache(self._map_file, processor)
+
+        feed_path: Path = self._folder / cache_folder
         logging.info("Using url %s with cache: %s", url, feed_path)
         feed_path.mkdir(exist_ok=True)
         return feed_path
 
-    def _entry_partition_name(self, data: dict) -> Optional[datetime]:
-        if self.PARTITION_FIELD not in data:
+    def _entry_datetime(self, data: dict[str, str]) -> Optional[datetime]:
+        if self.DATETIME_FIELD not in data:
             return None
-        value = data[self.PARTITION_FIELD]
+        value = data[self.DATETIME_FIELD]
         parsed = dateparser.parse(value)
         logging.info("Raw datetime [%s] parsed as %s", value, parsed)
         return parsed
@@ -269,23 +299,42 @@ class FileCacheFeedHelper(ABC):  # pylint: disable=too-few-public-methods
         entries_map: dict = self._load_cache(feed_path / self.ENTRIES_MAP_FILE)
         return entries_map
 
-    def _save_entries_map(self, feed_path: Path, data: dict) -> None:
-        entries_map = feed_path / self.ENTRIES_MAP_FILE
-        self._save_cache(entries_map, data)
-
-    def _save_new_entry(self, feed_path: Path, data: dict) -> None:
+    def _is_good_entry_in_map(self, feed_path: Path, data: dict[str, str]) -> bool:
+        if self.GUID_FIELD not in data:
+            return False
+        guid = data[self.GUID_FIELD]
         mapper = self._load_entries_map(feed_path)
-        guid = data.get(self.GUID_FIELD, "")
-        if guid in mapper:
-            logging.info("Entry %s exists in cache: %s", guid, mapper[guid][0])
-            return
+        result = False
+        if guid not in mapper:
+            return False
+        try:
+            file_name, _, is_dirty = mapper[guid]
+            logging.info(
+                "%s entry %s exists in cache: %s",
+                "Dirty" if is_dirty else "Good",
+                guid,
+                file_name,
+            )
+            result = not is_dirty
+        except Exception as ex:  # pylint: disable=broad-except
+            logging.info("An exception was raised in _is_entry_in_map: '%s'", ex)
+        return result
 
-        file_name = self.ENTRY_FILE_FORMAT.format(guid=uuid.uuid4().hex)
-        full_file_name = feed_path / file_name
-        self._save_cache(full_file_name, data)
-        logging.info("Adding entry %s to cache %s", guid, file_name)
-        mapper[guid] = (file_name, self._entry_partition_name(data))
-        self._save_entries_map(feed_path, mapper)
+    @call_logger("file_name", "data")
+    def _add_entry_to_map(self, feed_path: Path, file_name: str, data: dict) -> None:
+        if self.GUID_FIELD not in data:
+            logging.info("Entry does not have %s field", self.GUID_FIELD)
+            return
+        guid = data[self.GUID_FIELD]
+        entry_datetime = self._entry_datetime(data)
+        now_utc = datetime.now(timezone.utc)
+        is_dirty = not entry_datetime or now_utc - entry_datetime < timedelta(hours=4)
+
+        def processor(mapper: dict) -> bool:
+            mapper[guid] = (file_name, entry_datetime, is_dirty)
+            return True
+
+        self._with_cache(feed_path / self.ENTRIES_MAP_FILE, processor)
 
 
 class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
@@ -307,7 +356,11 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
         self._save_cache(self._feed / self.HEADER_FILE, data)
 
     def write_entry(self, data: dict[str, str]) -> None:
-        self._save_new_entry(self._feed, data)
+        if self._is_good_entry_in_map(self._feed, data):
+            return
+        file_name = self.ENTRY_FILE_FORMAT.format(guid=uuid.uuid4().hex)
+        self._save_cache(self._feed / file_name, data)
+        self._add_entry_to_map(self._feed, file_name, data)
 
 
 class FileCacheFeedReader(FileCacheFeedHelper, FeedReader):
@@ -341,7 +394,7 @@ class FileCacheFeedReader(FileCacheFeedHelper, FeedReader):
 
     def __next__(self) -> dict[str, str]:
         result = self._iter.__next__()
-        logging.info("Cache loading from %s", result)
+        logging.info("Next entry from file cache: %s", result)
         data: dict = self._load_cache(self._feed / result[1][0])
         return data
 
