@@ -445,8 +445,7 @@ class FileCacheFeedHelper:
                 / str(entry_datetime.day)
                 / file_name
             )
-        else:
-            return feed_path / file_name
+        return feed_path / file_name
 
     @staticmethod
     def _entry_datetime(map_entry: FileCacheMapEntry) -> Optional[datetime]:
@@ -492,7 +491,10 @@ class FileCacheFeedHelper:
                 feed_reader = FileCacheFeedReader(feed_path / self.HEADER_FILE, entries)
                 filtered.append(FeedMiddleware(feed_reader))
 
-        return filtered
+        if filtered:
+            return filtered
+
+        raise ContentUnreachable
 
     @call_logger("feed_path")
     def _load_map_of_entries(self, feed_path: Path) -> dict:
@@ -835,7 +837,7 @@ def main() -> None:
         if args.url or args.date:
             feed_processor(args.url, args.limit, args.json, args.date)
     except ContentUnreachable:
-        print("Error happened as content cannot be loaded from", args.url)
+        print("Error happened as content cannot be loaded from", args.url or "cache")
     except NotRssContent:
         print("Error happened as there is no RSS at", args.url)
     except Exception as ex:
