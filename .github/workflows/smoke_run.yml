@@ -37,6 +37,10 @@ jobs:
       - name: Check expected result from install
         run: python -c "import sys; version_supported = sys.version_info >= (3, 9); setup_succeeded = '${{ steps.install.outcome }}' == 'success'; assert version_supported and setup_succeeded or not version_supported and not setup_succeeded"
 
-      - name: Smoke Run
+      - name: Web Smoke Run
         if: steps.install.outcome == 'success' 
-        run: rss_reader https://feeds.washingtonpost.com/rss/world --limit 2
+        run: rss_reader https://raw.githubusercontent.com/DiPal2/rss/main/tests/data/the-daily.xml
+
+      - name: Cache Smoke Run
+        if: steps.install.outcome == 'success'
+        run: rss_reader --date 20170421
