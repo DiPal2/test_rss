@@ -269,7 +269,7 @@ class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
         super().__init__(request.text)
 
 
-class FileCache(AbstractContextManager):
+class SafeFileCache(AbstractContextManager):
     """
     A context manager for saving and loading cache files
     """
@@ -281,7 +281,7 @@ class FileCache(AbstractContextManager):
         self._file_name = file_name
         self._file: BinaryIO
 
-    def __enter__(self) -> "FileCache":
+    def __enter__(self) -> "SafeFileCache":
         self._file = open(self._file_name, "rb+")
         return self
 
@@ -296,14 +296,16 @@ class FileCache(AbstractContextManager):
         :return:
             A dictionary
         """
-        logging.info("FileCache load called for %s", self._file_name)
+        logging.info("SafeFileCache load called for %s", self._file_name)
         data = {}
         try:
             data = pickle.load(self._file)
         except Exception as ex:  # pylint: disable=broad-except
-            logging.info("FileCache for %s cannot be loaded: %s", self._file_name, ex)
+            logging.info(
+                "SafeFileCache for %s cannot be loaded: %s", self._file_name, ex
+            )
         if not isinstance(data, dict):
-            logging.info("FileCache for %s loaded garbage", self._file_name)
+            logging.info("SafeFileCache for %s loaded garbage", self._file_name)
             data = {}
         return data
 
@@ -317,12 +319,14 @@ class FileCache(AbstractContextManager):
         :return:
             Nothing
         """
-        logging.info("FileCache save called for %s", self._file_name)
+        logging.info("SafeFileCache save called for %s", self._file_name)
         try:
             self._file.seek(0)
             pickle.dump(data, self._file)
         except Exception as ex:  # pylint: disable=broad-except
-            logging.info("FileCache for %s cannot be saved: %s", self._file_name, ex)
+            logging.info(
+                "SafeFileCache for %s cannot be saved: %s", self._file_name, ex
+            )
 
 
 FileCacheMapEntry = tuple[str, Optional[datetime], bool]
@@ -347,13 +351,13 @@ class FileCacheFeedReader(FeedSource):
         self._entries = entries
 
     def read_header(self) -> FeedData:
-        with FileCache(self._header_file) as cache:
+        with SafeFileCache(self._header_file) as cache:
             result: FeedData = cache.load()
         return result
 
     def entry_iterator(self) -> Iterable[FeedData]:
         for item in self._entries:
-            with FileCache(item) as cache:
+            with SafeFileCache(item) as cache:
                 result: FeedData = cache.load()
                 yield result
 
@@ -426,7 +430,7 @@ class FileCacheFeedMapper:
         :return:
             a Path to a cache folder
         """
-        with FileCache(self._map_file) as cache:
+        with SafeFileCache(self._map_file) as cache:
             mapper = cache.load()
             cache_folder = mapper.get(url)
             if not cache_folder:
@@ -448,7 +452,7 @@ class FileCacheFeedMapper:
         :return:
             a dictionary of urls with feed cache folders
         """
-        with FileCache(self._map_file) as cache:
+        with SafeFileCache(self._map_file) as cache:
             mapper = cache.load()
         return mapper
 
@@ -531,7 +535,7 @@ class FileCacheFeedHelper:
 
     @call_logger("feed_path")
     def _load_map_of_entries(self, feed_path: Path) -> dict:
-        with FileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
+        with SafeFileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
             entries_map: dict = cache.load()
         return entries_map
 
@@ -587,7 +591,7 @@ class FileCacheFeedHelper:
             logging.info("Entry does not have guid")
             return
 
-        with FileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
+        with SafeFileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
             mapper = cache.load()
             mapper[guid] = cache_map_entry
             cache.save(mapper)
@@ -609,7 +613,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
         self._feed = FileCacheFeedMapper().feed_to_path(url)
 
     def write_header(self, data: FeedData) -> None:
-        with FileCache(self._feed / self.HEADER_FILE) as cache:
+        with SafeFileCache(self._feed / self.HEADER_FILE) as cache:
             cache.save(data)
 
     def write_entry(self, data: FeedData) -> None:
@@ -618,7 +622,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
         cache_map_entry = self.new_cache_map_entry(data)
         if cache_map_entry:
             full_name = self._entry_full_path(self._feed, cache_map_entry)
-            with FileCache(full_name) as cache:
+            with SafeFileCache(full_name) as cache:
                 cache.save(data)
             self._add_entry_to_map(self._feed, data, cache_map_entry)
 
