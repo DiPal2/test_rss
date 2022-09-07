@@ -72,6 +72,12 @@ class NotRssContent(RssReaderError):
     """
 
 
+class CacheEmpty(RssReaderError):
+    """
+    Exception for empty cache
+    """
+
+
 FeedData = dict[str, str]
 
 
@@ -477,6 +483,9 @@ class FileCacheFeedHelper:
 
         :return:
             a list of FeedMiddleware
+
+        :raises CacheEmpty:
+            raised when there is no filtered data
         """
         filtered = []
         with FileCache(self._map_file) as cache:
@@ -494,7 +503,7 @@ class FileCacheFeedHelper:
         if filtered:
             return filtered
 
-        raise ContentUnreachable
+        raise CacheEmpty
 
     @call_logger("feed_path")
     def _load_map_of_entries(self, feed_path: Path) -> dict:
@@ -602,6 +611,7 @@ class Renderer(ABC):
         self._html.images_to_alt = True
         self._html.default_image_alt = "image"
         self._html.single_line_break = True
+        sys.stdout.reconfigure(encoding='utf-8')
 
     def _from_html(self, value: str) -> str:
         return self._html.handle(value)[:-2]
@@ -837,9 +847,11 @@ def main() -> None:
         if args.url or args.date:
             feed_processor(args.url, args.limit, args.json, args.date)
     except ContentUnreachable:
-        print("Error happened as content cannot be loaded from", args.url or "cache")
+        print("Error happened as content cannot be loaded from", args.url)
     except NotRssContent:
         print("Error happened as there is no RSS at", args.url)
+    except CacheEmpty:
+        print("Error happened as there is no data in cache for", args.date)
     except Exception as ex:
         logging.info("Exception was raised '%s'", ex)
         print("Error happened during program execution.")
