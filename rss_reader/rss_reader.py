@@ -78,6 +78,12 @@ class CacheEmpty(RssReaderError):
     """
 
 
+class CacheIssue(RssReaderError):
+    """
+    Cache failure exception
+    """
+
+
 FeedData = dict[str, str]
 
 
@@ -269,25 +275,32 @@ class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
         super().__init__(request.text)
 
 
-class SafeFileCache(AbstractContextManager):
+class FileCache(AbstractContextManager):
     """
     A context manager for saving and loading cache files
     """
 
     def __init__(self, file_name: Path):
-        if not file_name.exists():
-            file_name.parent.mkdir(parents=True, exist_ok=True)
-            file_name.touch(exist_ok=True)
+        try:
+            if not file_name.exists():
+                file_name.parent.mkdir(parents=True, exist_ok=True)
+                file_name.touch(exist_ok=True)
+        except Exception as ex:
+            logging.info("FileCache for %s cannot prepare path: %s", file_name, ex)
+            raise CacheIssue from ex
         self._file_name = file_name
         self._file: BinaryIO
 
-    def __enter__(self) -> "SafeFileCache":
-        self._file = open(self._file_name, "rb+")
+    def __enter__(self) -> "FileCache":
+        try:
+            self._file = open(self._file_name, "rb+")
+        except Exception as ex:
+            logging.info("FileCache for %s cannot be opened: %s", self._file_name, ex)
+            raise CacheIssue from ex
         return self
 
-    def __exit__(self, *exc_details: Any) -> bool:
+    def __exit__(self, *exc_details: Any) -> None:
         self._file.close()
-        return True
 
     def load(self) -> dict:
         """
@@ -296,17 +309,18 @@ class SafeFileCache(AbstractContextManager):
         :return:
             A dictionary
         """
-        logging.info("SafeFileCache load called for %s", self._file_name)
-        data = {}
+        logging.info("FileCache load called for %s", self._file_name)
         try:
-            data = pickle.load(self._file)
-        except Exception as ex:  # pylint: disable=broad-except
-            logging.info(
-                "SafeFileCache for %s cannot be loaded: %s", self._file_name, ex
-            )
+            if self._file_name.stat().st_size == 0:
+                data = {}
+            else:
+                data = pickle.load(self._file)
+        except Exception as ex:
+            logging.info("FileCache for %s cannot be loaded: %s", self._file_name, ex)
+            raise CacheIssue from ex
         if not isinstance(data, dict):
-            logging.info("SafeFileCache for %s loaded garbage", self._file_name)
-            data = {}
+            logging.info("FileCache for %s loaded garbage", self._file_name)
+            raise CacheIssue
         return data
 
     def save(self, data: dict) -> None:
@@ -319,14 +333,13 @@ class SafeFileCache(AbstractContextManager):
         :return:
             Nothing
         """
-        logging.info("SafeFileCache save called for %s", self._file_name)
+        logging.info("FileCache save called for %s", self._file_name)
         try:
             self._file.seek(0)
             pickle.dump(data, self._file)
-        except Exception as ex:  # pylint: disable=broad-except
-            logging.info(
-                "SafeFileCache for %s cannot be saved: %s", self._file_name, ex
-            )
+        except Exception as ex:
+            logging.info("FileCache for %s cannot be saved: %s", self._file_name, ex)
+            raise CacheIssue from ex
 
 
 FileCacheMapEntry = tuple[str, Optional[datetime], bool]
@@ -351,13 +364,13 @@ class FileCacheFeedReader(FeedSource):
         self._entries = entries
 
     def read_header(self) -> FeedData:
-        with SafeFileCache(self._header_file) as cache:
+        with FileCache(self._header_file) as cache:
             result: FeedData = cache.load()
         return result
 
     def entry_iterator(self) -> Iterable[FeedData]:
         for item in self._entries:
-            with SafeFileCache(item) as cache:
+            with FileCache(item) as cache:
                 result: FeedData = cache.load()
                 yield result
 
@@ -397,28 +410,24 @@ class FileCacheFeedMapper:
         :return:
             Nothing
         """
-        if FileCacheFeedMapper._rmdir(FileCacheFeedMapper.cache_folder()):
-            print("Cache was erased successfully")
-        else:
-            print("An error occurred while cleaning the cache")
+        FileCacheFeedMapper._rmdir(FileCacheFeedMapper.cache_folder())
+        print("Cache was erased successfully")
 
     @staticmethod
-    def _rmdir(folder: Path) -> bool:
+    def _rmdir(folder: Path) -> None:
         if not folder.exists():
-            return True
-        result = True
+            return
         try:
             for item in folder.iterdir():
                 if item.is_file() or item.is_symlink():
                     item.unlink(missing_ok=True)
                 elif item.is_dir():
-                    result = result and FileCacheFeedMapper._rmdir(item)
+                    FileCacheFeedMapper._rmdir(item)
             folder.rmdir()
             logging.info("Removed empty folder %s", folder)
-            return result
-        except Exception as ex:  # pylint: disable=broad-except
+        except Exception as ex:
             logging.info("_rmdir %s failed with '%s'", folder, ex)
-            return False
+            raise CacheIssue from ex
 
     def feed_to_path(self, url: str) -> Path:
         """
@@ -430,31 +439,29 @@ class FileCacheFeedMapper:
         :return:
             a Path to a cache folder
         """
-        with SafeFileCache(self._map_file) as cache:
+        with FileCache(self._map_file) as cache:
             mapper = cache.load()
-            cache_folder = mapper.get(url)
-            if not cache_folder:
-                last = int(max(mapper.values())) if mapper else 0
-                cache_folder = str(last + 1)
-                logging.info("Adding url %s to cache %s", url, cache_folder)
-                mapper[url] = cache_folder
+            current = mapper.get(url)
+            if not current:
+                current = 1 + max(mapper.values()) if mapper else 1
+                logging.info("Adding url %s to cache %s", url, current)
+                mapper[url] = current
                 cache.save(mapper)
-            feed_path: Path = self._folder / cache_folder
 
+        feed_path: Path = self._folder / str(current)
         logging.info("Using url %s with cache: %s", url, feed_path)
-        feed_path.mkdir(exist_ok=True)
         return feed_path
 
-    def get_map(self) -> dict[str, str]:
+    def get_map(self) -> dict[str, Path]:
         """
         Returns full map between feed urls and cache folders
 
         :return:
-            a dictionary of urls with feed cache folders
+            a dictionary of urls with feed cache Path
         """
-        with SafeFileCache(self._map_file) as cache:
+        with FileCache(self._map_file) as cache:
             mapper = cache.load()
-        return mapper
+        return {key: self._folder / str(value) for key, value in mapper.items()}
 
 
 class FileCacheFeedHelper:
@@ -464,9 +471,7 @@ class FileCacheFeedHelper:
 
     HEADER_FILE = "header.bin"
     ENTRIES_MAP_FILE = "entries.bin"
-    ENTRY_FILE_FORMAT = "{guid}.bin"
     GUID_FIELD = "guid"
-    DATETIME_FIELD = "published"
 
     @staticmethod
     def _entry_full_path(feed_path: Path, map_entry: FileCacheMapEntry) -> Path:
@@ -517,13 +522,11 @@ class FileCacheFeedHelper:
         """
         filtered = []
         feeds = FileCacheFeedMapper().get_map()
-        main_cache_folder = FileCacheFeedMapper.cache_folder()
 
         if url:
             feeds = {url: feeds[url]} if url in feeds else {}
 
-        for _, cache_folder in feeds.items():
-            feed_path = main_cache_folder / cache_folder
+        for feed_path in feeds.values():
             if entries := self._filter_feed_entries(feed_path, date_filter):
                 feed_reader = FileCacheFeedReader(feed_path / self.HEADER_FILE, entries)
                 filtered.append(FeedMiddleware(feed_reader))
@@ -535,7 +538,7 @@ class FileCacheFeedHelper:
 
     @call_logger("feed_path")
     def _load_map_of_entries(self, feed_path: Path) -> dict:
-        with SafeFileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
+        with FileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
             entries_map: dict = cache.load()
         return entries_map
 
@@ -544,23 +547,19 @@ class FileCacheFeedHelper:
             return False
         guid = data[self.GUID_FIELD]
         mapper = self._load_map_of_entries(feed_path)
-        result = False
         if guid not in mapper:
             return False
-        try:
-            file_name, _, is_dirty = mapper[guid]
-            logging.info(
-                "%s entry %s exists in cache: %s",
-                "Dirty" if is_dirty else "Good",
-                guid,
-                file_name,
-            )
-            result = not is_dirty
-        except Exception as ex:  # pylint: disable=broad-except
-            logging.info("_is_entry_in_map failed with '%s'", ex)
-        return result
+        file_name, _, is_dirty = mapper[guid]
+        logging.info(
+            "%s entry %s exists in cache: %s",
+            "Dirty" if is_dirty else "Good",
+            guid,
+            file_name,
+        )
+        return not is_dirty
 
-    def new_cache_map_entry(self, data: FeedData) -> FileCacheMapEntry:
+    @staticmethod
+    def new_cache_map_entry(data: FeedData) -> FileCacheMapEntry:
         """
         Creates FileCacheMapEntry based on FeedData
 
@@ -570,9 +569,9 @@ class FileCacheFeedHelper:
         :return:
             FileCacheMapEntry
         """
-        file_name = self.ENTRY_FILE_FORMAT.format(guid=uuid.uuid4().hex)
+        file_name = "{guid}.bin".format(guid=uuid.uuid4().hex)
         entry_datetime: Optional[datetime] = None
-        if value := data.get(self.DATETIME_FIELD):
+        if value := data.get("published"):
             try:
                 entry_datetime = dateparser.parse(value)
             except Exception as ex:  # pylint: disable=broad-except
@@ -591,7 +590,7 @@ class FileCacheFeedHelper:
             logging.info("Entry does not have guid")
             return
 
-        with SafeFileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
+        with FileCache(feed_path / self.ENTRIES_MAP_FILE) as cache:
             mapper = cache.load()
             mapper[guid] = cache_map_entry
             cache.save(mapper)
@@ -613,16 +612,15 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
         self._feed = FileCacheFeedMapper().feed_to_path(url)
 
     def write_header(self, data: FeedData) -> None:
-        with SafeFileCache(self._feed / self.HEADER_FILE) as cache:
+        with FileCache(self._feed / self.HEADER_FILE) as cache:
             cache.save(data)
 
     def write_entry(self, data: FeedData) -> None:
         if self._is_good_entry_in_map(self._feed, data):
             return
-        cache_map_entry = self.new_cache_map_entry(data)
-        if cache_map_entry:
+        if cache_map_entry := self.new_cache_map_entry(data):
             full_name = self._entry_full_path(self._feed, cache_map_entry)
-            with SafeFileCache(full_name) as cache:
+            with FileCache(full_name) as cache:
                 cache.save(data)
             self._add_entry_to_map(self._feed, data, cache_map_entry)
 
@@ -823,7 +821,7 @@ def feed_processor(
     renderer.render_exit()
 
 
-def main() -> None:
+def main() -> None:  # pylint: disable=too-many-statements
     """
     CLI for feed processing
     """
@@ -885,14 +883,20 @@ def main() -> None:
             feed_processor(args.url, args.limit, args.json, args.date)
     except ContentUnreachable:
         print("Error happened as content cannot be loaded from", args.url)
+        sys.exit(10)
     except NotRssContent:
         print("Error happened as there is no RSS at", args.url)
+        sys.exit(20)
     except CacheEmpty:
         print("Error happened as there is no data in cache for", args.date)
-    except Exception as ex:
+        sys.exit(30)
+    except CacheIssue:
+        print("Working with cache failed. Try calling script with --cleanup")
+        sys.exit(40)
+    except Exception as ex:  # pylint: disable=broad-except
         logging.info("Exception was raised '%s'", ex)
         print("Error happened during program execution.")
-        raise
+        raise  # sys.exit(100)
 
 
 if __name__ == "__main__":
