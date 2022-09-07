@@ -611,7 +611,7 @@ class Renderer(ABC):
         self._html.images_to_alt = True
         self._html.default_image_alt = "image"
         self._html.single_line_break = True
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
 
     def _from_html(self, value: str) -> str:
         return self._html.handle(value)[:-2]
