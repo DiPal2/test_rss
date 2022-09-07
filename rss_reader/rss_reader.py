@@ -358,23 +358,15 @@ class FileCacheFeedReader(FeedSource):
                 yield result
 
 
-class FileCacheFeedHelper:
+class FileCacheFeedMapper:
     """
-    A class used to work with file cache for feeds
+    A class used to map a feed to a cache folder
     """
-
-    MAP_FILE = "feeds.bin"
-    HEADER_FILE = "header.bin"
-    ENTRIES_MAP_FILE = "entries.bin"
-    ENTRY_FILE_FORMAT = "{guid}.bin"
-    GUID_FIELD = "guid"
-    DATETIME_FIELD = "published"
 
     def __init__(self) -> None:
         self._folder = self.cache_folder()
-        self._folder.mkdir(parents=True, exist_ok=True)
-        self._map_file = self._folder / self.MAP_FILE
         logging.info("Cache folder %s", self._folder)
+        self._map_file = self._folder / "feeds.bin"
 
     @staticmethod
     def cache_folder() -> Path:
@@ -401,7 +393,7 @@ class FileCacheFeedHelper:
         :return:
             Nothing
         """
-        if FileCacheFeedHelper._rmdir(FileCacheFeedHelper.cache_folder()):
+        if FileCacheFeedMapper._rmdir(FileCacheFeedMapper.cache_folder()):
             print("Cache was erased successfully")
         else:
             print("An error occurred while cleaning the cache")
@@ -416,7 +408,7 @@ class FileCacheFeedHelper:
                 if item.is_file() or item.is_symlink():
                     item.unlink(missing_ok=True)
                 elif item.is_dir():
-                    result = result and FileCacheFeedHelper._rmdir(item)
+                    result = result and FileCacheFeedMapper._rmdir(item)
             folder.rmdir()
             logging.info("Removed empty folder %s", folder)
             return result
@@ -424,7 +416,16 @@ class FileCacheFeedHelper:
             logging.info("_rmdir %s failed with '%s'", folder, ex)
             return False
 
-    def _feed_to_path(self, url: str) -> Path:
+    def feed_to_path(self, url: str) -> Path:
+        """
+        Converts a feed url to an appropriate cache folder
+
+        :param url:
+            a web address of a feed
+
+        :return:
+            a Path to a cache folder
+        """
         with FileCache(self._map_file) as cache:
             mapper = cache.load()
             cache_folder = mapper.get(url)
@@ -439,6 +440,29 @@ class FileCacheFeedHelper:
         logging.info("Using url %s with cache: %s", url, feed_path)
         feed_path.mkdir(exist_ok=True)
         return feed_path
+
+    def get_map(self) -> dict[str, str]:
+        """
+        Returns full map between feed urls and cache folders
+
+        :return:
+            a dictionary of urls with feed cache folders
+        """
+        with FileCache(self._map_file) as cache:
+            mapper = cache.load()
+        return mapper
+
+
+class FileCacheFeedHelper:
+    """
+    A class used to work with file cache for feeds
+    """
+
+    HEADER_FILE = "header.bin"
+    ENTRIES_MAP_FILE = "entries.bin"
+    ENTRY_FILE_FORMAT = "{guid}.bin"
+    GUID_FIELD = "guid"
+    DATETIME_FIELD = "published"
 
     @staticmethod
     def _entry_full_path(feed_path: Path, map_entry: FileCacheMapEntry) -> Path:
@@ -488,14 +512,14 @@ class FileCacheFeedHelper:
             raised when there is no filtered data
         """
         filtered = []
-        with FileCache(self._map_file) as cache:
-            feeds = cache.load()
+        feeds = FileCacheFeedMapper().get_map()
+        main_cache_folder = FileCacheFeedMapper.cache_folder()
 
         if url:
             feeds = {url: feeds[url]} if url in feeds else {}
 
         for _, cache_folder in feeds.items():
-            feed_path = self._folder / cache_folder
+            feed_path = main_cache_folder / cache_folder
             if entries := self._filter_feed_entries(feed_path, date_filter):
                 feed_reader = FileCacheFeedReader(feed_path / self.HEADER_FILE, entries)
                 filtered.append(FeedMiddleware(feed_reader))
@@ -532,7 +556,16 @@ class FileCacheFeedHelper:
             logging.info("_is_entry_in_map failed with '%s'", ex)
         return result
 
-    def _new_cache_map_entry(self, data: FeedData) -> Optional[FileCacheMapEntry]:
+    def new_cache_map_entry(self, data: FeedData) -> FileCacheMapEntry:
+        """
+        Creates FileCacheMapEntry based on FeedData
+
+        :param data:
+            FeedData
+
+        :return:
+            FileCacheMapEntry
+        """
         file_name = self.ENTRY_FILE_FORMAT.format(guid=uuid.uuid4().hex)
         entry_datetime: Optional[datetime] = None
         if value := data.get(self.DATETIME_FIELD):
@@ -573,7 +606,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
             an address of a feed
         """
         super().__init__()
-        self._feed = self._feed_to_path(url)
+        self._feed = FileCacheFeedMapper().feed_to_path(url)
 
     def write_header(self, data: FeedData) -> None:
         with FileCache(self._feed / self.HEADER_FILE) as cache:
@@ -582,7 +615,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
     def write_entry(self, data: FeedData) -> None:
         if self._is_good_entry_in_map(self._feed, data):
             return
-        cache_map_entry = self._new_cache_map_entry(data)
+        cache_map_entry = self.new_cache_map_entry(data)
         if cache_map_entry:
             full_name = self._entry_full_path(self._feed, cache_map_entry)
             with FileCache(full_name) as cache:
@@ -843,7 +876,7 @@ def main() -> None:
     try:
         logging.info("Parsed arguments: %s", args)
         if args.cleanup:
-            FileCacheFeedHelper.reset_cache()
+            FileCacheFeedMapper.reset_cache()
         if args.url or args.date:
             feed_processor(args.url, args.limit, args.json, args.date)
     except ContentUnreachable:
