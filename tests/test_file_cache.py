@@ -13,17 +13,24 @@ def fixture_file(tmp_path):
     return tmp_path / "rss_test" / "test.bin"
 
 
-def test_file_cache_good(file):
+def test_file_cache(file):
     """
-    Tests FileCache expected good behaviour
+    Tests FileCache expected basic operations
     """
-    file.unlink(missing_ok=True)
     test_data = {"simple": "dictionary"}
+
+    file.unlink(missing_ok=True)
+    with FileCache(file) as cache:
+        cache_data = cache.load()
+
+    assert file.is_file()
+
+    assert cache_data == {}
 
     with FileCache(file) as cache:
         cache.save(test_data)
 
-    assert file.is_file()
+    assert file.stat().st_size > 0
 
     with FileCache(file) as cache:
         cache_data = cache.load()
@@ -58,7 +65,6 @@ def test_file_cache_exception(file):
     """
     file.parent.mkdir(parents=True, exist_ok=True)
     file.touch(exist_ok=True)
-    file.write_text("Something good")
 
     bad_file = file / "bad"
 

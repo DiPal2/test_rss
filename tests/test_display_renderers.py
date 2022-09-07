@@ -48,7 +48,7 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
     elif renderer_type == "text":
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_header(data)
+    renderer.render_header_and_entries(data, [{}])
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected
@@ -118,7 +118,7 @@ def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
     elif renderer_type == "text":
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_entries([data])
+    renderer.render_header_and_entries({},[data])
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected
@@ -137,7 +137,7 @@ def test_json_renderer_entry_description(file_name, capfd):
     input_data = read_test_data(f"{file_name}.html")
     expected = read_test_data(f"{file_name}_json.txt")
     renderer = JsonRenderer()
-    renderer.render_entries([{"description": input_data}])
+    renderer.render_header_and_entries({},[{"description": input_data}])
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected
@@ -186,8 +186,7 @@ def test_renderer_full(renderer_type, header, entries, expected_j, expected_t, c
     elif renderer_type == "text":
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_header(header)
-    renderer.render_entries(entries)
+    renderer.render_header_and_entries(header, entries)
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected

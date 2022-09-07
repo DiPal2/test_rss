@@ -17,18 +17,24 @@ After that you can use `rss_reader` from any folder or `rss_reader.py` located i
 
 ## Usage
 
-`rss_reader.py [-h] [--version] [--json] [--verbose] [--limit LIMIT] source`
+`rss_reader.py  [-h] [--version] [--json] [--verbose] [--limit LIMIT] [--cleanup] [--date DATE] [source]`
 
-| Option           | Description
-|------------------|--------------------------------------------
-| `source`         | RSS URL
-| `-h`, `--help`   | show this help message and exit
-| `--version`      | show program's version number and exit
-| `--json`         | Print result as JSON in stdout
-| `--verbose`      | Outputs verbose status messages
-| `--limit LIMIT`  | Limit news topics if this parameter provided
+| Option          | Description                                                        |
+|-----------------|--------------------------------------------------------------------|
+| `-h`, `--help`  | show this help message and exit                                    |
+| `--version`     | show program's version number and exit                             |
+| `--json`        | Print result as JSON in stdout                                     |
+| `--verbose`     | Outputs verbose status messages                                    |
+| `--limit LIMIT` | Limit news topics if this parameter provided                       |
+| `source`        | RSS URL                                                            |
+| `--cleanup`     | Clear cached data                                                  |
+| `--date DATE`   | Limit news to only cached data with such published date (YYYYMMDD) |
 
-Example of generated JSON:
+* At least `source` or `--date` or `--cleanup` is required
+* `--limit` affects saving news to cache
+* `DATE` filter is applied for all published news between 00:00:00.000 and 23:59:59.999 in your local time zone
+
+### Example of generated JSON:
 ```json
 {
   "title": "Name of RSS feed",
@@ -42,14 +48,46 @@ Example of generated JSON:
   ]
 }
 ```
-| JSON Field  | Location | Description
-|-------------|----------|--------------------------------------------
-| title       |          | Title of the RSS feed
-| entries     |          | Array of RSS feed items
-| title       | entries  | Title of the RSS feed item
-| published   | entries  | The date and time the RSS feed item was published
-| link        | entries  | Link to RSS feed item
-| description | entries  | Description of the RSS feed item
+| JSON Field  | Location | Description                                       |
+|-------------|----------|---------------------------------------------------|
+| title       |          | Title of the RSS feed                             |
+| entries     |          | Array of RSS feed items                           |
+| title       | entries  | Title of the RSS feed item                        |
+| published   | entries  | The date and time the RSS feed item was published |
+| link        | entries  | Link to RSS feed item                             |
+| description | entries  | Description of the RSS feed item                  |
+
+### Local cache description
+
+Cache files are stored in [Default home directory](https://en.wikipedia.org/wiki/Home_directory#Default_home_directory_per_operating_system) under the following paths:
+
+| Operation system | cache location                                |
+|------------------|-----------------------------------------------|
+| Windows          | {home}\AppData\Roaming\rss_reader             |
+| macOS            | {home}/Library/Application Support/rss_reader |
+| other            | {home}/.local/share/rss_reader                |
+
+```bash
+rss_reader
+├── feeds.bin                                              (mapping between url and local folder)
+├── 1                                                      (folder for 1st loaded feed)
+│   ├── header.bin                                         (dictionary for feed header information)
+│   ├── entries.bin                                        (mapping for feed entry(guid, published_date_with_timezone, file_name_with_entry_dictionary))
+│   ├── 2022                                               (year from published_date_with_timezone)
+│   │   ├── 8                                              (month from published_date_with_timezone)
+│   │   │   ├──28                                          (day from published_date_with_timezone)
+│   │   │   │   ├──8381930ff6134169ad49623be15d8965.bin    (dictionary for 1st feed entry information that was published 2022-08-28)
+│   │   │   │   └──3caa5322209d4e2b954f13729c71d6ed.bin    (dictionary for 2nd feed entry information that was published 2022-08-28)
+│   │   │   └──30                                          (day from published_date_with_timezone)
+│   │   └── 9                                              (month from published_date_with_timezone)
+│   │   ............
+│   └── 2021                                               (year from published_date_with_timezone)
+│   ................
+├── 2                                                      (folder for 2nd loaded feed)
+│   ├── header.bin                                         (dictionary for feed header information)
+│   ├── entries.bin                                        (mapping for feed entry(guid, published_date_with_timezone, file_name_with_entry_dictionary))
+....................
+```
 
 ## Testing
 
@@ -77,9 +115,7 @@ You can control code style by running the following commands:
 ```shell
 black --check --diff .
 pycodestyle setup.py rss_reader tests
-pylint rss_reader
-pylint setup.py --disable=exec-used
-pylint tests --disable=redefined-outer-name
+pylint pylint setup.py rss_reader tests
 mypy --disallow-untyped-defs rss_reader
 mypy setup.py tests
 ```

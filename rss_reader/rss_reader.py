@@ -569,7 +569,7 @@ class FileCacheFeedHelper:
         :return:
             FileCacheMapEntry
         """
-        file_name = "{guid}.bin".format(guid=uuid.uuid4().hex)
+        file_name = f"{uuid.uuid4().hex}.bin"
         entry_datetime: Optional[datetime] = None
         if value := data.get("published"):
             try:
@@ -672,21 +672,12 @@ class Renderer(ABC):
         self._render_fields(self.ENTRY_FIELDS, data, processor)
 
     @abstractmethod
-    def render_header(self, data: FeedData) -> None:
+    def render_header_and_entries(self, header: FeedData, entries: Iterable[FeedData]) -> None:
         """
-        Render feed header
+        Render feed header and entries
 
-        :param data:
+        :param header:
             a dictionary with header elements
-
-        :return:
-            Nothing
-        """
-
-    @abstractmethod
-    def render_entries(self, entries: Iterable[FeedData]) -> None:
-        """
-        Render feed entry
 
         :param entries:
             an iterable with FeedData for entries
@@ -721,18 +712,17 @@ class TextRenderer(Renderer):
             "description": "\n{}",
         }
 
-    def render_header(self, data: FeedData) -> None:
-        def processor(key: str, value: str) -> None:
+    def render_header_and_entries(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+        def header_processor(key: str, value: str) -> None:
             print(self._header_formats[key].format(value))
 
-        self._render_header_fields(data, processor)
-
-    def render_entries(self, entries: Iterable[FeedData]) -> None:
-        def processor(key: str, value: str) -> None:
+        def entry_processor(key: str, value: str) -> None:
             print(self._entry_formats[key].format(value))
 
+        self._render_header_fields(header, header_processor)
+
         for data in entries:
-            self._render_entry_fields(data, processor)
+            self._render_entry_fields(data, entry_processor)
 
     def render_exit(self) -> None:
         pass
@@ -745,29 +735,29 @@ class JsonRenderer(Renderer):
 
     def __init__(self) -> None:
         super().__init__()
-        self._json: dict = {}
+        self._json = []
 
-    def render_header(self, data: FeedData) -> None:
-        result = {}
+    def render_header_and_entries(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+        feed_json = {}
+        result: dict = {}
 
-        def processor(key: str, value: str) -> None:
+        def header_processor(key: str, value: str) -> None:
+            feed_json[key] = value
+
+        def entry_processor(key: str, value: str) -> None:
             result[key] = value
 
-        self._render_header_fields(data, processor)
-        self._json.update(result)
+        self._render_header_fields(header, header_processor)
 
-    def render_entries(self, entries: Iterable[FeedData]) -> None:
         final = []
-
-        def processor(key: str, value: str) -> None:
-            result[key] = value
 
         for data in entries:
             result: dict = {}
-            self._render_entry_fields(data, processor)
+            self._render_entry_fields(data, entry_processor)
             final.append(result)
 
-        self._json["entries"] = final
+        feed_json["entries"] = final
+        self._json.append(feed_json)
 
     def render_exit(self) -> None:
         print(json.dumps(self._json))
@@ -811,8 +801,7 @@ def feed_processor(
     renderer: Renderer = JsonRenderer() if is_json else TextRenderer()
 
     for feed in feeds:
-        renderer.render_header(feed.header)
-        renderer.render_entries(feed.entries(limit))
+        renderer.render_header_and_entries(feed.header, feed.entries(limit))
         if limit:
             limit -= feed.processed_entries
         if limit == 0:
@@ -859,13 +848,13 @@ def main() -> None:  # pylint: disable=too-many-statements
         type=check_non_negative,
         help="Limit news topics if this parameter provided",
     )
+    group.add_argument("--cleanup", action="store_true", help="Clear cached data")
     group.add_argument(
         "--date",
         metavar="DATE",
         type=check_date,
         help="Limit news to only cached data with such published date (YYYYMMDD)",
     )
-    group.add_argument("--cleanup", action="store_true", help="Clear cached data")
 
     args = parser.parse_args()
     if not (args.url or args.date or args.cleanup):
