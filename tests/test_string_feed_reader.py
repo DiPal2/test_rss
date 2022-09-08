@@ -27,7 +27,7 @@ def test_string_feed_reader(file_name, expected_title):
     feed = StringFeedReader(input_data)
     header = feed.read_header()
     assert header["title"] == expected_title
-    for entry in feed.entry_iterator():
+    for entry in feed.entry_iter():
         assert entry | expected_first_item == entry
         break
 

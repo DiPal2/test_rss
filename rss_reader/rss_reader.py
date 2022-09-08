@@ -132,9 +132,9 @@ class FeedSource(ABC):
         """
 
     @abstractmethod
-    def entry_iterator(self) -> Iterable[FeedData]:
+    def entry_iter(self) -> Iterable[FeedData]:
         """
-        Iterates feed items
+        Iterates over feed items
 
         :return:
             An Iterable of FeedData for entries
@@ -177,7 +177,7 @@ class FeedMiddleware:
             An Iterable of FeedData entries
         """
         self._entry_count = 0
-        for item in self._source.entry_iterator():
+        for item in self._source.entry_iter():
             if self._cache_writer:
                 self._cache_writer.write_entry(item)
             self._entry_count += 1
@@ -245,7 +245,7 @@ class StringFeedReader(FeedSource):
     def read_header(self) -> FeedData:
         return self._xml_children_to_dict(self._feed, self._FEED_ITEM)
 
-    def entry_iterator(self) -> Iterable[FeedData]:
+    def entry_iter(self) -> Iterable[FeedData]:
         for item in self._feed.iter(self._FEED_ITEM):
             yield self._xml_children_to_dict(item)
 
@@ -368,7 +368,7 @@ class FileCacheFeedReader(FeedSource):
             result: FeedData = cache.load()
         return result
 
-    def entry_iterator(self) -> Iterable[FeedData]:
+    def entry_iter(self) -> Iterable[FeedData]:
         for item in self._entries:
             with FileCache(item) as cache:
                 result: FeedData = cache.load()
