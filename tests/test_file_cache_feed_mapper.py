@@ -26,7 +26,7 @@ def fixture_home(monkeypatch, home_path):
     monkeypatch.setattr(Path, "home", mock_return)
 
 
-def test_file_cache_feed_mapper(home, home_path):
+def test_file_cache_feed_mapper(home, home_path):  # pylint: disable=unused-argument
     """
     Tests FileCacheFeedMapper basic operations
     """
