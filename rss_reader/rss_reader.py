@@ -672,7 +672,7 @@ class Renderer(ABC):
         self._render_fields(self.ENTRY_FIELDS, data, processor)
 
     @abstractmethod
-    def render_header_and_entries(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
         """
         Render feed header and entries
 
@@ -712,7 +712,7 @@ class TextRenderer(Renderer):
             "description": "\n{}",
         }
 
-    def render_header_and_entries(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
         def header_processor(key: str, value: str) -> None:
             print(self._header_formats[key].format(value))
 
@@ -735,11 +735,12 @@ class JsonRenderer(Renderer):
 
     def __init__(self) -> None:
         super().__init__()
-        self._json = []
+        self._json: list[dict] = []
 
-    def render_header_and_entries(self, header: FeedData, entries: Iterable[FeedData]) -> None:
-        feed_json = {}
+    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+        feed_json: dict = {}
         result: dict = {}
+        items = []
 
         def header_processor(key: str, value: str) -> None:
             feed_json[key] = value
@@ -749,14 +750,12 @@ class JsonRenderer(Renderer):
 
         self._render_header_fields(header, header_processor)
 
-        final = []
-
         for data in entries:
-            result: dict = {}
+            result = {}
             self._render_entry_fields(data, entry_processor)
-            final.append(result)
+            items.append(result)
 
-        feed_json["entries"] = final
+        feed_json["entries"] = items
         self._json.append(feed_json)
 
     def render_exit(self) -> None:
@@ -801,7 +800,7 @@ def feed_processor(
     renderer: Renderer = JsonRenderer() if is_json else TextRenderer()
 
     for feed in feeds:
-        renderer.render_header_and_entries(feed.header, feed.entries(limit))
+        renderer.render_feed(feed.header, feed.entries(limit))
         if limit:
             limit -= feed.processed_entries
         if limit == 0:

@@ -23,16 +23,16 @@ def fixture_renderer_type(request):
 @pytest.mark.parametrize(
     "data,expected_j,expected_t",
     [
-        pytest.param({"other": "other"}, "{}\n", "", id="empty"),
+        pytest.param({"other": "other"}, '[{"entries": [{}]}]\n', "", id="empty"),
         pytest.param(
             {"title": "test"},
-            '{"title": "test"}\n',
+            '[{"title": "test", "entries": [{}]}]\n',
             "Feed: test\n",
             id="exact",
         ),
         pytest.param(
             {"title": "test", "other": "other"},
-            '{"title": "test"}\n',
+            '[{"title": "test", "entries": [{}]}]\n',
             "Feed: test\n",
             id="reduced",
         ),
@@ -48,7 +48,7 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
     elif renderer_type == "text":
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_header_and_entries(data, [{}])
+    renderer.render_feed(data, [{}])
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected
@@ -57,40 +57,40 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
 @pytest.mark.parametrize(
     "data,expected_j,expected_t",
     [
-        pytest.param({"other": "other"}, '{"entries": [{}]}\n', "", id="empty"),
+        pytest.param({"other": "other"}, '[{"entries": [{}]}]\n', "", id="empty"),
         pytest.param(
             {"title": "test"},
-            '{"entries": [{"title": "test"}]}\n',
+            '[{"entries": [{"title": "test"}]}]\n',
             "\n\nTitle: test\n\n",
             id="title",
         ),
         pytest.param(
             {"title": ""},
-            '{"entries": [{"title": ""}]}\n',
+            '[{"entries": [{"title": ""}]}]\n',
             "\n\nTitle: \n\n",
             id="title_len_0",
         ),
         pytest.param(
             {"title": "test'&#x27;&nbsp;&#160;\u2019\u00a0", "other": "other"},
-            '{"entries": [{"title": "test\'\'  \\u2019"}]}\n',
+            '[{"entries": [{"title": "test\'\'  \\u2019"}]}]\n',
             "\n\nTitle: test''  ’\n\n",
             id="title_reduced",
         ),
         pytest.param(
             {"published": "2020-01-02"},
-            '{"entries": [{"published": "2020-01-02"}]}\n',
+            '[{"entries": [{"published": "2020-01-02"}]}]\n',
             "Date: 2020-01-02\n",
             id="published",
         ),
         pytest.param(
             {"link": "http://one.com"},
-            '{"entries": [{"link": "http://one.com"}]}\n',
+            '[{"entries": [{"link": "http://one.com"}]}]\n',
             "Link: http://one.com\n",
             id="link",
         ),
         pytest.param(
             {"description": "Test news"},
-            '{"entries": [{"description": "Test news"}]}\n',
+            '[{"entries": [{"description": "Test news"}]}]\n',
             "\nTest news\n",
             id="description",
         ),
@@ -101,8 +101,8 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
                 "link": "http://many.com",
                 "description": "Test news",
             },
-            '{"entries": [{"title": "test", "published": "2020-01-02", "link": '
-            + '"http://many.com", "description": "Test news"}]}\n',
+            '[{"entries": [{"title": "test", "published": "2020-01-02", "link": '
+            + '"http://many.com", "description": "Test news"}]}]\n',
             "\n\nTitle: test\n\nDate: 2020-01-02\nLink: http://many.com\n\nTest news\n",
             id="all",
         ),
@@ -118,7 +118,7 @@ def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
     elif renderer_type == "text":
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_header_and_entries({},[data])
+    renderer.render_feed({}, [data])
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected
@@ -137,7 +137,7 @@ def test_json_renderer_entry_description(file_name, capfd):
     input_data = read_test_data(f"{file_name}.html")
     expected = read_test_data(f"{file_name}_json.txt")
     renderer = JsonRenderer()
-    renderer.render_header_and_entries({},[{"description": input_data}])
+    renderer.render_feed({}, [{"description": input_data}])
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected
@@ -162,11 +162,11 @@ def test_json_renderer_entry_description(file_name, capfd):
                     "description": "something new happened",
                 },
             ],
-            '{"title": "feed for test", "entries": [{"title": "item 1", "published": '
+            '[{"title": "feed for test", "entries": [{"title": "item 1", "published": '
             + '"2020-01-02", "link": "http://somewhere.com/news1", "description": '
             + '"something happened"}, {"title": "item 2", "published": "2021-01-02", '
             + '"link": "http://somewhere.com/news2", "description": '
-            + '"something new happened"}]}\n',
+            + '"something new happened"}]}]\n',
             "Feed: feed for test\n\n\nTitle: item 1\n\nDate: 2020-01-02\nLink: "
             + "http://somewhere.com/news1\n\nsomething happened\n\n\nTitle: item 2\n"
             + "\nDate: 2021-01-02\nLink: http://somewhere.com/news2\n\nsomething new"
@@ -186,7 +186,7 @@ def test_renderer_full(renderer_type, header, entries, expected_j, expected_t, c
     elif renderer_type == "text":
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_header_and_entries(header, entries)
+    renderer.render_feed(header, entries)
     renderer.render_exit()
     out, _ = capfd.readouterr()
     assert out == expected

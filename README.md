@@ -36,18 +36,22 @@ After that you can use `rss_reader` from any folder or `rss_reader.py` located i
 
 ### Example of generated JSON:
 ```json
-{
-  "title": "Name of RSS feed",
-  "entries": [
-    {
-      "title": "RSS feed item title",
-      "published": "2022-08-20",
-      "link": "http:\\example.com",
-      "description": "RSS feed item description"
-    }
-  ]
-}
+[
+  {
+    "title": "Name of RSS feed",
+    "entries": [
+      {
+        "title": "RSS feed item title",
+        "published": "2022-08-20",
+        "link": "http:\\example.com",
+        "description": "RSS feed item description"
+      }
+    ]
+  }
+]
 ```
+JSON consists of an array of feeds. Each feed must have **entries** element, the rest are optional:
+
 | JSON Field  | Location | Description                                       |
 |-------------|----------|---------------------------------------------------|
 | title       |          | Title of the RSS feed                             |
