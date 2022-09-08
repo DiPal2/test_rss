@@ -19,6 +19,7 @@ def fixture_home(monkeypatch, home_path):
     """
     A fixture for Path.home()
     """
+
     def mock_return():
         return home_path
 
