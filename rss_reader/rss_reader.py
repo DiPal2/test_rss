@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
 from functools import wraps
+import html
 import inspect
 import json
 import logging
@@ -82,6 +83,12 @@ class CacheEmpty(RssReaderError):
 class CacheIssue(RssReaderError):
     """
     Cache failure exception
+    """
+
+
+class ExportIssue(RssReaderError):
+    """
+    Export failure exception
     """
 
 
@@ -838,6 +845,69 @@ class FileRenderer(FeedRenderer, ABC):
         self._file = Path(file_name)
 
 
+class HtmlRenderer(FileRenderer):
+    """
+    A class used to render HTML file
+    """
+    HTML_TEMPLATE = """<!DOCTYPE html><html><head><meta charset=utf-8">
+    <title>Feed</title></head><body>{body}</body></html>"""
+
+    def __init__(self, file_name: str):
+        super().__init__(file_name)
+        self._html = self.HTML_TEMPLATE
+
+    def render_feed_start(self, header: FeedData) -> None:
+        header_html = "<h2>{title}</h2>"
+        args = {}
+        for field in self.FEED_FIELDS:
+            args[field] = html.escape(header[field]) if field in header else ""
+        header_html = header_html.format(**args)
+
+        self._html = self._html.format(body=f"{header_html}{{body}}")
+
+    def render_feed_entry(self, entry: FeedData) -> None:
+        entry_html = """<h4><a href ="{link}">{title}</a></h4><p>{description}</p>"""
+        args = {}
+        for field in self.ENTRY_FIELDS:
+            args[field] = (
+                (entry[field] if field == "entry" else html.escape(entry[field]))
+                if field in entry
+                else ""
+            )
+        entry_html = entry_html.format(**args)
+
+        self._html = self._html.format(body=f"{entry_html}{{body}}")
+
+    def render_feed_end(self) -> None:
+        pass
+
+    def render_exit(self) -> None:
+        try:
+            with open(self._file, "w", encoding="utf-8") as file:
+                file.write(self._html)
+        except Exception as ex:
+            logging.info("HTML file save failed with '%s'", ex)
+            raise ExportIssue from ex
+
+
+class EpubRenderer(FileRenderer):
+    """
+    A class used to render EPUB file
+    """
+
+    def render_feed_start(self, header: FeedData) -> None:
+        raise NotImplementedError
+
+    def render_feed_entry(self, entry: FeedData) -> None:
+        raise NotImplementedError
+
+    def render_feed_end(self) -> None:
+        raise NotImplementedError
+
+    def render_exit(self) -> None:
+        raise NotImplementedError
+
+
 def parse_arguments() -> Namespace:
     """
     Parse CLI arguments
@@ -954,7 +1024,15 @@ def feed_processor(  # pylint: disable=too-many-arguments
         raise ValueError("Both html_file and epub_file cannot be set")
 
     renderers: list[FeedRenderer] = []
-    renderers.append(JsonRenderer() if is_json else TextRenderer())
+    if html_file or epub_file:
+        if html_file:
+            renderers.append(HtmlRenderer(html_file))
+        elif epub_file:
+            renderers.append(EpubRenderer(epub_file))
+        if is_json:
+            renderers.append(JsonRenderer())
+    else:
+        renderers.append(JsonRenderer() if is_json else TextRenderer())
 
     for feed in feeds:
         feed.process(renderers, limit)
@@ -1005,6 +1083,9 @@ def main() -> None:
     except CacheIssue:
         print("Working with cache failed. Try calling script with --cleanup")
         sys.exit(40)
+    except ExportIssue:
+        print("Cannot export to", args.to_html or args.to_epub)
+        sys.exit(50)
     except Exception as ex:  # pylint: disable=broad-except
         logging.info("Exception was raised '%s'", ex)
         print("Error happened during program execution.")
