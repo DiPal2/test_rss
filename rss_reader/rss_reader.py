@@ -1,11 +1,10 @@
 """Reads RSS feed and displays it in various formats"""
 
 from abc import ABC, abstractmethod
-from argparse import Action, ArgumentParser, ArgumentTypeError, Namespace
-from collections.abc import Callable, Iterable, Sequence
+from argparse import ArgumentParser, ArgumentTypeError, Namespace
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
-from enum import Enum, auto
 from functools import wraps
 import inspect
 import json
@@ -14,7 +13,7 @@ from pathlib import Path
 import pickle
 import shutil
 import sys
-from typing import Any, BinaryIO, Optional, Union
+from typing import Any, BinaryIO, Optional
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -85,15 +84,6 @@ class CacheIssue(RssReaderError):
     """
 
 
-class FileType(Enum):
-    """
-    Enumerator of file types to which the feed can be exported
-    """
-
-    HTML = auto
-    EPUB = auto
-
-
 FeedData = dict[str, str]
 
 
@@ -129,7 +119,7 @@ class CacheFeedWriter(ABC):
 
 class FeedSource(ABC):
     """
-    An abstract class for a feed source
+    An abstract class for reading feed from a source
     """
 
     @abstractmethod
@@ -151,6 +141,44 @@ class FeedSource(ABC):
         """
 
 
+class FeedRenderer(ABC):
+    """
+    An abstract class used for rendering feed
+    """
+
+    FEED_FIELDS = ("title",)
+    ENTRY_FIELDS = (
+        "title",
+        "published",
+        "link",
+        "description",
+    )
+
+    @abstractmethod
+    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+        """
+        Render feed header and entries
+
+        :param header:
+            a dictionary with header elements
+
+        :param entries:
+            an iterable with FeedData for entries
+
+        :return:
+            Nothing
+        """
+
+    @abstractmethod
+    def render_exit(self) -> None:
+        """
+        Finish rendering
+
+        :return:
+            Nothing
+        """
+
+
 class FeedMiddleware:
     """
     A class used to abstract feed(s) source with feed processor
@@ -159,6 +187,15 @@ class FeedMiddleware:
     def __init__(
         self, source: FeedSource, cache_writer: Optional[CacheFeedWriter] = None
     ):
+        """
+        Initialize middleware for the feed and constructs all the necessary attributes
+
+        :param source:
+            A source that should be used for fetching feed
+
+        :param cache_writer:
+            An optional cache writer for feed content
+        """
         self._source = source
         self._cache_writer = cache_writer
         self._entry_count = 0
@@ -194,6 +231,24 @@ class FeedMiddleware:
             yield item
             if maximum and self._entry_count >= maximum:
                 return
+
+    def process(
+        self, renderers: Iterable[FeedRenderer], maximum: Optional[int] = None
+    ) -> None:
+        """
+        Process feed by calling renderers for feed header and elements
+
+        :param renderers:
+            Iterable FeedRenderer that should be called during feed processing
+
+        :param maximum:
+            an int that limits processing of feed items
+
+        :return:
+            Nothing
+        """
+        for renderer in renderers:
+            renderer.render_feed(self.header, self.entries(maximum))
 
     @property
     def processed_entries(self) -> int:
@@ -611,7 +666,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
     A class used to write feed content to file cache
     """
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str):
         """
         Init feed cache for writing
 
@@ -638,50 +693,12 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
 FieldValueProcessor = Callable[[str, str], None]
 
 
-class AbstractRenderer(ABC):
-    """
-    An abstract class used for rendering feed
-    """
-
-    FEED_FIELDS = ("title",)
-    ENTRY_FIELDS = (
-        "title",
-        "published",
-        "link",
-        "description",
-    )
-
-    @abstractmethod
-    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
-        """
-        Render feed header and entries
-
-        :param header:
-            a dictionary with header elements
-
-        :param entries:
-            an iterable with FeedData for entries
-
-        :return:
-            Nothing
-        """
-
-    @abstractmethod
-    def render_exit(self) -> None:
-        """
-        Finish rendering
-
-        :return:
-            Nothing
-        """
-
-
-class ConsoleRenderer(AbstractRenderer, ABC):
+class ConsoleRenderer(FeedRenderer, ABC):
     """
     An abstract class used for rendering feed for console
     """
 
-    def __init__(self, body_width: Optional[int] = None) -> None:
+    def __init__(self, body_width: Optional[int] = None):
         self._html = HTML2Text(bodywidth=body_width or sys.maxsize)
         self._html.images_to_alt = True
         self._html.default_image_alt = "image"
@@ -778,13 +795,95 @@ class JsonRenderer(ConsoleRenderer):
         print(json.dumps(self._json))
 
 
-class FileRenderer(AbstractRenderer, ABC):
+class FileRenderer(FeedRenderer, ABC):
     """
     An abstract class used for rendering feed for file
     """
 
-    def __init__(self, file_name: str) -> None:
+    def __init__(self, file_name: str):
         self._file = Path(file_name)
+
+
+class ArgProcessor:  # pylint: disable=too-few-public-methods
+    """
+    A class used to parse CLI arguments
+    """
+
+    def __init__(self) -> None:
+        """
+        Initialize ArgProcessor and parse arguments
+        """
+        parser = ArgumentParser(description="Pure Python command-line RSS reader.")
+        group = parser.add_argument_group("content")
+        group.add_argument("url", nargs="?", type=str, help="RSS URL", metavar="source")
+        parser.add_argument(
+            "--version", action="version", version=f"Version {__version__}"
+        )
+        parser.add_argument(
+            "--json", action="store_true", help="Print result as JSON in stdout"
+        )
+        parser.add_argument(
+            "--verbose",
+            help="Outputs verbose status messages",
+            action="store_const",
+            dest="log_level",
+            const=logging.INFO,
+        )
+        parser.add_argument(
+            "--limit",
+            metavar="LIMIT",
+            type=self._check_non_negative,
+            help="Limit news topics if this parameter provided",
+        )
+        converter_group = parser.add_mutually_exclusive_group()
+        converter_group.add_argument(
+            "--to-html",
+            help="Converts to HTML file",
+            metavar="FILE_NAME",
+        )
+        converter_group.add_argument(
+            "--to-epub",
+            help="Converts to EPUB file",
+            metavar="FILE_NAME",
+        )
+        group.add_argument("--cleanup", action="store_true", help="Clear cached data")
+        group.add_argument(
+            "--date",
+            metavar="DATE",
+            type=self._check_date,
+            help="Limit news to only cached data with such published date (YYYYMMDD)",
+        )
+
+        self._args = parser.parse_args()
+        if not (self._args.url or self._args.date or self._args.cleanup):
+            parser.error("No content provided, add source or --date or --cleanup")
+        if self._args.cleanup and self._args.date:
+            parser.error("--cleanup cannot be used with --date")
+
+    @staticmethod
+    def _check_non_negative(value: str) -> int:
+        result = int(value)
+        if result < 0:
+            raise ArgumentTypeError(f"{value} is not a non-negative int value")
+        return result
+
+    @staticmethod
+    def _check_date(value: str) -> date:
+        try:
+            return datetime.strptime(value, "%Y%m%d").date()
+        except ValueError as exc:
+            msg = f"{value} is not a date in YYYYMMDD format"
+            raise ArgumentTypeError(msg) from exc
+
+    @property
+    def args(self) -> Namespace:
+        """
+        Returns parsed arguments
+
+        :return:
+            Namespace
+        """
+        return self._args
 
 
 def feed_processor(  # pylint: disable=too-many-arguments
@@ -792,29 +891,29 @@ def feed_processor(  # pylint: disable=too-many-arguments
     limit: Optional[int] = None,
     is_json: bool = False,
     date_filter: Optional[date] = None,
-    file_format: Optional[FileType] = None,
-    file_name: Optional[str] = None,
+    html_file: Optional[str] = None,
+    epub_file: Optional[str] = None,
 ) -> None:
     """
     Performs loading and displaying of the RSS feed
 
     :param url:
-        an address of the RSS feed
+        an address of the RSS feed (optional if date_filter is provided)
 
     :param limit:
         an int that limits processing of items in the feed (0 means no limit)
 
     :param is_json:
-        should data be displayed in JSON format
+        should data be displayed in JSON format (False is default)
 
     :param date_filter:
-        should cache be used to filter by published date
+        should cache be used to filter by published date (optional)
 
-    :param file_format:
-        output format for saving file
+    :param html_file:
+        file name for saving in HTML format (optional)
 
-    :param file_name:
-        file name for saving in various formats
+    :param epub_file:
+        file name for saving in EPUB format (optional)
 
     :return:
         Nothing
@@ -830,15 +929,14 @@ def feed_processor(  # pylint: disable=too-many-arguments
     else:
         raise ValueError("At least url or date_filter is required")
 
-    if file_format and not file_name or not file_format and file_name:
-        raise ValueError("Both file_format and file_name are required")
+    if html_file and epub_file:
+        raise ValueError("Both html_file and epub_file cannot be set")
 
-    renderers: list[AbstractRenderer] = []
-
+    renderers: list[FeedRenderer] = []
     renderers.append(JsonRenderer() if is_json else TextRenderer())
 
     for feed in feeds:
-        renderers[0].render_feed(feed.header, feed.entries(limit))
+        feed.process(renderers, limit)
         if limit:
             limit -= feed.processed_entries
         if limit == 0:
@@ -847,88 +945,12 @@ def feed_processor(  # pylint: disable=too-many-arguments
     renderers[0].render_exit()
 
 
-def main() -> None:  # pylint: disable=too-many-statements
+def main() -> None:
     """
     CLI for feed processing
     """
 
-    def check_non_negative(value: str) -> int:
-        result = int(value)
-        if result < 0:
-            raise ArgumentTypeError(f"{value} is not a non-negative int value")
-        return result
-
-    def check_date(value: str) -> date:
-        try:
-            return datetime.strptime(value, "%Y%m%d").date()
-        except ValueError as exc:
-            msg = f"{value} is not a date in YYYYMMDD format"
-            raise ArgumentTypeError(msg) from exc
-
-    def set_file_type(file_type: FileType) -> Any:
-        class CustomAction(Action):
-            """
-            Custom action that sets file_type and file_name
-            """
-
-            def __call__(
-                self,
-                arg_parser: Any,
-                namespace: Namespace,
-                values: Union[str, Sequence[Any], None],
-                option_string: Optional[str] = None,
-            ) -> None:
-                setattr(namespace, "file_type", file_type)
-                setattr(namespace, "file_name", values)
-
-        return CustomAction
-
-    parser = ArgumentParser(description="Pure Python command-line RSS reader.")
-    group = parser.add_argument_group("content")
-    group.add_argument("url", nargs="?", type=str, help="RSS URL", metavar="source")
-    parser.add_argument("--version", action="version", version=f"Version {__version__}")
-    parser.add_argument(
-        "--json", action="store_true", help="Print result as JSON in stdout"
-    )
-    parser.add_argument(
-        "--verbose",
-        help="Outputs verbose status messages",
-        action="store_const",
-        dest="log_level",
-        const=logging.INFO,
-    )
-    parser.add_argument(
-        "--limit",
-        metavar="LIMIT",
-        type=check_non_negative,
-        help="Limit news topics if this parameter provided",
-    )
-    converter_group = parser.add_mutually_exclusive_group()
-    converter_group.add_argument(
-        "--to-html",
-        help="Converts to HTML file",
-        action=set_file_type(FileType.HTML),
-        metavar="FILE_NAME",
-    )
-    converter_group.add_argument(
-        "--to-epub",
-        help="Converts to EPUB file",
-        action=set_file_type(FileType.EPUB),
-        metavar="FILE_NAME",
-    )
-    group.add_argument("--cleanup", action="store_true", help="Clear cached data")
-    group.add_argument(
-        "--date",
-        metavar="DATE",
-        type=check_date,
-        help="Limit news to only cached data with such published date (YYYYMMDD)",
-    )
-
-    args = parser.parse_args()
-    if not (args.url or args.date or args.cleanup):
-        parser.error("No content provided, add source or --date or --cleanup")
-    if args.cleanup and args.date:
-        parser.error("--cleanup cannot be used with --date")
+    args = ArgProcessor().args
 
     logging.basicConfig(format="%(asctime)s %(message)s", level=args.log_level)
 
@@ -942,8 +964,8 @@ def main() -> None:  # pylint: disable=too-many-statements
                 args.limit,
                 args.json,
                 args.date,
-                args.file_type,
-                args.file_name,
+                args.to_html,
+                args.to_epub,
             )
     except ContentUnreachable:
         print("Error happened as content cannot be loaded from", args.url)
@@ -955,7 +977,7 @@ def main() -> None:  # pylint: disable=too-many-statements
         print(
             "Error happened as there is no data in cache for",
             args.date,
-            f"and url={args.url}" if args.url else "",
+            f"and url {args.url}" if args.url else "",
         )
         sys.exit(30)
     except CacheIssue:

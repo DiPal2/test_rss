@@ -1,4 +1,4 @@
-"""tests for display renders (TextRenderer, JsonRenderer)"""
+"""tests for console renders (TextRenderer, JsonRenderer)"""
 
 import pytest
 
