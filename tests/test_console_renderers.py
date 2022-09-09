@@ -1,16 +1,20 @@
 """tests for console renders (TextRenderer, JsonRenderer)"""
 
+import json
 import pytest
 
 from rss_reader.rss_reader import TextRenderer, JsonRenderer
 from tests.helpers import read_test_data
 
+TEXT_RENDERER = "text"
+JSON_RENDERER = "json"
+
 
 @pytest.fixture(
     name="renderer_type",
     params=[
-        pytest.param("text", id="TextRenderer"),
-        pytest.param("json", id="JsonRenderer"),
+        pytest.param(TEXT_RENDERER, id="TextRenderer"),
+        pytest.param(JSON_RENDERER, id="JsonRenderer"),
     ],
 )
 def fixture_renderer_type(request):
@@ -23,16 +27,16 @@ def fixture_renderer_type(request):
 @pytest.mark.parametrize(
     "data,expected_j,expected_t",
     [
-        pytest.param({"other": "other"}, '[{"entries": [{}]}]\n', "", id="empty"),
+        pytest.param({"other": "other"}, '[{"entries": []}]\n', "", id="empty"),
         pytest.param(
             {"title": "test"},
-            '[{"title": "test", "entries": [{}]}]\n',
+            '[{"title": "test", "entries": []}]\n',
             "Feed: test\n",
             id="exact",
         ),
         pytest.param(
             {"title": "test", "other": "other"},
-            '[{"title": "test", "entries": [{}]}]\n',
+            '[{"title": "test", "entries": []}]\n',
             "Feed: test\n",
             id="reduced",
         ),
@@ -42,15 +46,20 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
     """
     Tests render_header in renders
     """
-    if renderer_type == "json":
+    if renderer_type == JSON_RENDERER:
         renderer = JsonRenderer()
         expected = expected_j
-    elif renderer_type == "text":
+    elif renderer_type == TEXT_RENDERER:
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_feed(data, [{}])
+    renderer.render_feed_start(data)
+    renderer.render_feed_end()
     renderer.render_exit()
     out, _ = capfd.readouterr()
+
+    if renderer_type == JSON_RENDERER:
+        assert json.loads(out)
+
     assert out == expected
 
 
@@ -112,15 +121,20 @@ def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
     """
     Tests render_entry in renders
     """
-    if renderer_type == "json":
+    if renderer_type == JSON_RENDERER:
         renderer = JsonRenderer()
         expected = expected_j
-    elif renderer_type == "text":
+    elif renderer_type == TEXT_RENDERER:
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_feed({}, [data])
+    renderer.render_feed_entry(data)
+    renderer.render_feed_end()
     renderer.render_exit()
     out, _ = capfd.readouterr()
+
+    if renderer_type == JSON_RENDERER:
+        assert json.loads(out)
+
     assert out == expected
 
 
@@ -137,9 +151,13 @@ def test_json_renderer_entry_description(file_name, capfd):
     input_data = read_test_data(f"{file_name}.html")
     expected = read_test_data(f"{file_name}_json.txt")
     renderer = JsonRenderer()
-    renderer.render_feed({}, [{"description": input_data}])
+    renderer.render_feed_entry({"description": input_data})
+    renderer.render_feed_end()
     renderer.render_exit()
     out, _ = capfd.readouterr()
+
+    assert json.loads(out)
+
     assert out == expected
 
 
@@ -180,13 +198,20 @@ def test_renderer_full(renderer_type, header, entries, expected_j, expected_t, c
     """
     Tests render_entry in renders
     """
-    if renderer_type == "json":
+    if renderer_type == JSON_RENDERER:
         renderer = JsonRenderer()
         expected = expected_j
-    elif renderer_type == "text":
+    elif renderer_type == TEXT_RENDERER:
         renderer = TextRenderer()
         expected = expected_t
-    renderer.render_feed(header, entries)
+    renderer.render_feed_start(header)
+    for entry in entries:
+        renderer.render_feed_entry(entry)
+    renderer.render_feed_end()
     renderer.render_exit()
     out, _ = capfd.readouterr()
+
+    if renderer_type == JSON_RENDERER:
+        assert json.loads(out)
+
     assert out == expected

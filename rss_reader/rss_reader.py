@@ -1,4 +1,5 @@
 """Reads RSS feed and displays it in various formats"""
+# pylint: disable=too-many-lines
 
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, ArgumentTypeError, Namespace
@@ -155,15 +156,33 @@ class FeedRenderer(ABC):
     )
 
     @abstractmethod
-    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+    def render_feed_start(self, header: FeedData) -> None:
         """
-        Render feed header and entries
+        Starts feed rendering with header data
 
         :param header:
-            a dictionary with header elements
+            FeedData with header elements
 
-        :param entries:
-            an iterable with FeedData for entries
+        :return:
+            Nothing
+        """
+
+    @abstractmethod
+    def render_feed_entry(self, entry: FeedData) -> None:
+        """
+        Render feed entry
+
+        :param entry:
+            FeedData with entry elements
+
+        :return:
+            Nothing
+        """
+
+    @abstractmethod
+    def render_feed_end(self) -> None:
+        """
+        Finishes feed rendering
 
         :return:
             Nothing
@@ -172,7 +191,7 @@ class FeedRenderer(ABC):
     @abstractmethod
     def render_exit(self) -> None:
         """
-        Finish rendering
+        Finishes renderer, should be called at the end of rendering
 
         :return:
             Nothing
@@ -248,7 +267,14 @@ class FeedMiddleware:
             Nothing
         """
         for renderer in renderers:
-            renderer.render_feed(self.header, self.entries(maximum))
+            renderer.render_feed_start(self.header)
+
+        for data in self.entries(maximum):
+            for renderer in renderers:
+                renderer.render_feed_entry(data)
+
+        for renderer in renderers:
+            renderer.render_feed_end()
 
     @property
     def processed_entries(self) -> int:
@@ -745,17 +771,20 @@ class TextRenderer(ConsoleRenderer):
             "description": "\n{}",
         }
 
-    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
+    def render_feed_start(self, header: FeedData) -> None:
         def header_processor(key: str, value: str) -> None:
             print(self._header_formats[key].format(value))
 
+        self._render_header_fields(header, header_processor)
+
+    def render_feed_entry(self, entry: FeedData) -> None:
         def entry_processor(key: str, value: str) -> None:
             print(self._entry_formats[key].format(value))
 
-        self._render_header_fields(header, header_processor)
+        self._render_entry_fields(entry, entry_processor)
 
-        for data in entries:
-            self._render_entry_fields(data, entry_processor)
+    def render_feed_end(self) -> None:
+        pass
 
     def render_exit(self) -> None:
         pass
@@ -769,27 +798,32 @@ class JsonRenderer(ConsoleRenderer):
     def __init__(self) -> None:
         super().__init__()
         self._json: list[dict] = []
+        self._feed_json: dict = {}
+        self._feed_entries: list[dict] = []
 
-    def render_feed(self, header: FeedData, entries: Iterable[FeedData]) -> None:
-        feed_json: dict = {}
-        result: dict = {}
-        items = []
+    def render_feed_start(self, header: FeedData) -> None:
+        self._feed_json = {}
 
         def header_processor(key: str, value: str) -> None:
-            feed_json[key] = value
+            self._feed_json[key] = value
+
+        self._render_header_fields(header, header_processor)
+
+        self._feed_entries = []
+
+    def render_feed_entry(self, entry: FeedData) -> None:
+        result: dict = {}
 
         def entry_processor(key: str, value: str) -> None:
             result[key] = value
 
-        self._render_header_fields(header, header_processor)
+        self._render_entry_fields(entry, entry_processor)
 
-        for data in entries:
-            result = {}
-            self._render_entry_fields(data, entry_processor)
-            items.append(result)
+        self._feed_entries.append(result)
 
-        feed_json["entries"] = items
-        self._json.append(feed_json)
+    def render_feed_end(self) -> None:
+        self._feed_json["entries"] = self._feed_entries
+        self._json.append(self._feed_json)
 
     def render_exit(self) -> None:
         print(json.dumps(self._json))
@@ -804,86 +838,73 @@ class FileRenderer(FeedRenderer, ABC):
         self._file = Path(file_name)
 
 
-class ArgProcessor:  # pylint: disable=too-few-public-methods
+def parse_arguments() -> Namespace:
     """
-    A class used to parse CLI arguments
+    Parse CLI arguments
+
+    :return:
+        Namespace with parsed arguments
     """
 
-    def __init__(self) -> None:
-        """
-        Initialize ArgProcessor and parse arguments
-        """
-        parser = ArgumentParser(description="Pure Python command-line RSS reader.")
-        group = parser.add_argument_group("content")
-        group.add_argument("url", nargs="?", type=str, help="RSS URL", metavar="source")
-        parser.add_argument(
-            "--version", action="version", version=f"Version {__version__}"
-        )
-        parser.add_argument(
-            "--json", action="store_true", help="Print result as JSON in stdout"
-        )
-        parser.add_argument(
-            "--verbose",
-            help="Outputs verbose status messages",
-            action="store_const",
-            dest="log_level",
-            const=logging.INFO,
-        )
-        parser.add_argument(
-            "--limit",
-            metavar="LIMIT",
-            type=self._check_non_negative,
-            help="Limit news topics if this parameter provided",
-        )
-        converter_group = parser.add_mutually_exclusive_group()
-        converter_group.add_argument(
-            "--to-html",
-            help="Converts to HTML file",
-            metavar="FILE_NAME",
-        )
-        converter_group.add_argument(
-            "--to-epub",
-            help="Converts to EPUB file",
-            metavar="FILE_NAME",
-        )
-        group.add_argument("--cleanup", action="store_true", help="Clear cached data")
-        group.add_argument(
-            "--date",
-            metavar="DATE",
-            type=self._check_date,
-            help="Limit news to only cached data with such published date (YYYYMMDD)",
-        )
-
-        self._args = parser.parse_args()
-        if not (self._args.url or self._args.date or self._args.cleanup):
-            parser.error("No content provided, add source or --date or --cleanup")
-        if self._args.cleanup and self._args.date:
-            parser.error("--cleanup cannot be used with --date")
-
-    @staticmethod
-    def _check_non_negative(value: str) -> int:
+    def check_non_negative(value: str) -> int:
         result = int(value)
         if result < 0:
             raise ArgumentTypeError(f"{value} is not a non-negative int value")
         return result
 
-    @staticmethod
-    def _check_date(value: str) -> date:
+    def check_date(value: str) -> date:
         try:
             return datetime.strptime(value, "%Y%m%d").date()
         except ValueError as exc:
             msg = f"{value} is not a date in YYYYMMDD format"
             raise ArgumentTypeError(msg) from exc
 
-    @property
-    def args(self) -> Namespace:
-        """
-        Returns parsed arguments
+    parser = ArgumentParser(description="Pure Python command-line RSS reader.")
+    group = parser.add_argument_group("content")
+    group.add_argument("url", nargs="?", type=str, help="RSS URL", metavar="source")
+    parser.add_argument("--version", action="version", version=f"Version {__version__}")
+    parser.add_argument(
+        "--json", action="store_true", help="Print result as JSON in stdout"
+    )
+    parser.add_argument(
+        "--verbose",
+        help="Outputs verbose status messages",
+        action="store_const",
+        dest="log_level",
+        const=logging.INFO,
+    )
+    parser.add_argument(
+        "--limit",
+        metavar="LIMIT",
+        type=check_non_negative,
+        help="Limit news topics if this parameter provided",
+    )
+    converter_group = parser.add_mutually_exclusive_group()
+    converter_group.add_argument(
+        "--to-html",
+        help="Converts to HTML file",
+        metavar="FILE_NAME",
+    )
+    converter_group.add_argument(
+        "--to-epub",
+        help="Converts to EPUB file",
+        metavar="FILE_NAME",
+    )
+    group.add_argument("--cleanup", action="store_true", help="Clear cached data")
+    group.add_argument(
+        "--date",
+        metavar="DATE",
+        type=check_date,
+        help="Limit news to only cached data with such published date (YYYYMMDD)",
+    )
 
-        :return:
-            Namespace
-        """
-        return self._args
+    args = parser.parse_args()
+    if not (args.url or args.date or args.cleanup):
+        parser.error("No content provided, add source or --date or --cleanup")
+    if args.cleanup and args.date:
+        parser.error("--cleanup cannot be used with --date")
+
+    return args
 
 
 def feed_processor(  # pylint: disable=too-many-arguments
@@ -942,7 +963,8 @@ def feed_processor(  # pylint: disable=too-many-arguments
         if limit == 0:
             break
 
-    renderers[0].render_exit()
+    for renderer in renderers:
+        renderer.render_exit()
 
 
 def main() -> None:
@@ -950,7 +972,7 @@ def main() -> None:
     CLI for feed processing
     """
 
-    args = ArgProcessor().args
+    args = parse_arguments()
 
     logging.basicConfig(format="%(asctime)s %(message)s", level=args.log_level)
 
