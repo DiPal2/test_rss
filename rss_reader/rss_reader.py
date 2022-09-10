@@ -8,6 +8,7 @@ from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
 from functools import wraps
 import html
+from html.parser import HTMLParser
 import inspect
 import json
 import logging
@@ -723,11 +724,63 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
             self._add_entry_to_map(self._feed, data, cache_map_entry)
 
 
+class SimpleHtmlParser(HTMLParser):
+    """
+    A class used to sanitize HTML
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._start_cnt = 0
+        self._end_cnt = 0
+        self._parse_error = False
+
+    @call_logger("tag", "attrs")
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        self._start_cnt += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        self._end_cnt += 1
+
+    @call_logger("message")
+    def error(self, message: str) -> Any:
+        self._parse_error = True
+
+    def convert(self, text: str) -> str:
+        """
+        Prepare HTML/text for publishing inside HTML
+
+        :param text:
+            an input text or HTML
+
+        :return:
+            a string that can be used as a content in HTML
+        """
+        self._parse_error = False
+        self._start_cnt = 0
+        self._end_cnt = 0
+        self.feed(text)
+        self.close()
+        logging.info(
+            "html check: start=%s, end=%s, parse_error=%s",
+            self._start_cnt,
+            self._end_cnt,
+            self._parse_error,
+        )
+        is_html = (
+            not self._parse_error
+            and self._start_cnt
+            and self._end_cnt
+            and self._start_cnt >= self._end_cnt
+        )
+        return text if is_html else html.escape(text)
+
+
 FieldValueProcessor = Callable[[str, str], None]
 
 
 class ConsoleRenderer(FeedRenderer, ABC):
-    """
+    """SimpleHtmlParser
     An abstract class used for rendering feed for console
     """
 
@@ -849,31 +902,33 @@ class HtmlRenderer(FileRenderer):
     """
     A class used to render HTML file
     """
+
     HTML_TEMPLATE = """<!DOCTYPE html><html><head><meta charset=utf-8">
     <title>Feed</title></head><body>{body}</body></html>"""
 
     def __init__(self, file_name: str):
         super().__init__(file_name)
         self._html = self.HTML_TEMPLATE
+        self._parser = SimpleHtmlParser()
 
     def render_feed_start(self, header: FeedData) -> None:
-        header_html = "<h2>{title}</h2>"
+        header_html = """<h2 align="center">{title}</h2>"""
         args = {}
         for field in self.FEED_FIELDS:
-            args[field] = html.escape(header[field]) if field in header else ""
+            args[field] = self._parser.convert(header.get(field, ""))
         header_html = header_html.format(**args)
 
         self._html = self._html.format(body=f"{header_html}{{body}}")
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        entry_html = """<h4><a href ="{link}">{title}</a></h4><p>{description}</p>"""
+        entry_html = """<h4 align="center"><a href ="{link}">{title}</a></h4>
+        <div align="right">{published}</div><p>{description}</p>"""
         args = {}
         for field in self.ENTRY_FIELDS:
-            args[field] = (
-                (entry[field] if field == "entry" else html.escape(entry[field]))
-                if field in entry
-                else ""
-            )
+            value = entry.get(field, "")
+            if value and field != "link":
+                value = self._parser.convert(value)
+            args[field] = value
         entry_html = entry_html.format(**args)
 
         self._html = self._html.format(body=f"{entry_html}{{body}}")
@@ -882,6 +937,7 @@ class HtmlRenderer(FileRenderer):
         pass
 
     def render_exit(self) -> None:
+        self._html = self._html.format(body="")
         try:
             with open(self._file, "w", encoding="utf-8") as file:
                 file.write(self._html)
@@ -1010,8 +1066,7 @@ def feed_processor(  # pylint: disable=too-many-arguments
         Nothing
     """
 
-    if limit == 0:
-        limit = None
+    limit = None if limit == 0 else limit
 
     if date_filter:
         feeds = FileCacheFeedHelper().filter_entries(date_filter, url)
@@ -1024,22 +1079,23 @@ def feed_processor(  # pylint: disable=too-many-arguments
         raise ValueError("Both html_file and epub_file cannot be set")
 
     renderers: list[FeedRenderer] = []
-    if html_file or epub_file:
-        if html_file:
-            renderers.append(HtmlRenderer(html_file))
-        elif epub_file:
-            renderers.append(EpubRenderer(epub_file))
-        if is_json:
-            renderers.append(JsonRenderer())
-    else:
-        renderers.append(JsonRenderer() if is_json else TextRenderer())
+
+    if is_json:
+        renderers.append(JsonRenderer())
+
+    if html_file:
+        renderers.append(HtmlRenderer(html_file))
+    elif epub_file:
+        renderers.append(EpubRenderer(epub_file))
+    elif not is_json:
+        renderers.append(TextRenderer())
 
     for feed in feeds:
         feed.process(renderers, limit)
         if limit:
             limit -= feed.processed_entries
-        if limit == 0:
-            break
+            if limit <= 0:
+                break
 
     for renderer in renderers:
         renderer.render_exit()
