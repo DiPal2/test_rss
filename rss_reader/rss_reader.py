@@ -903,8 +903,22 @@ class HtmlRenderer(FileRenderer):
     A class used to render HTML file
     """
 
-    HTML_TEMPLATE = """<!DOCTYPE html><html><head><meta charset=utf-8">
-    <title>Feed</title></head><body>{body}</body></html>"""
+    STYLES = """
+h2, h3 {
+  text-align: center;
+}
+
+.published {
+  text-align: right;
+}
+"""
+
+    HTML_TEMPLATE = """
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+{styles}
+</style>
+<title>Feed</title></head><body>{body}</body></html>"""
 
     def __init__(self, file_name: str):
         super().__init__(file_name)
@@ -912,17 +926,17 @@ class HtmlRenderer(FileRenderer):
         self._parser = SimpleHtmlParser()
 
     def render_feed_start(self, header: FeedData) -> None:
-        header_html = """<h2 align="center">{title}</h2>"""
+        header_html = """<h2>{title}</h2>"""
         args = {}
         for field in self.FEED_FIELDS:
             args[field] = self._parser.convert(header.get(field, ""))
         header_html = header_html.format(**args)
 
-        self._html = self._html.format(body=f"{header_html}{{body}}")
+        self._html = self._html.format(styles="{styles}", body=f"{header_html}{{body}}")
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        entry_html = """<h4 align="center"><a href ="{link}">{title}</a></h4>
-        <div align="right">{published}</div><p>{description}</p>"""
+        entry_html = """<h3><a href ="{link}">{title}</a></h3>
+        <div class="published">{published}</div><p>{description}</p>"""
         args = {}
         for field in self.ENTRY_FIELDS:
             value = entry.get(field, "")
@@ -931,13 +945,13 @@ class HtmlRenderer(FileRenderer):
             args[field] = value
         entry_html = entry_html.format(**args)
 
-        self._html = self._html.format(body=f"{entry_html}{{body}}")
+        self._html = self._html.format(styles="{styles}", body=f"{entry_html}{{body}}")
 
     def render_feed_end(self) -> None:
         pass
 
     def render_exit(self) -> None:
-        self._html = self._html.format(body="")
+        self._html = self._html.format(styles=self.STYLES, body="")
         try:
             with open(self._file, "w", encoding="utf-8") as file:
                 file.write(self._html)
