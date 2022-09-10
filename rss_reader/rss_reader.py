@@ -21,6 +21,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 import dateparser
+from ebooklib import epub
 from html2text import HTML2Text
 import requests
 
@@ -87,9 +88,15 @@ class CacheIssue(RssReaderError):
     """
 
 
-class ExportIssue(RssReaderError):
+class HtmlExportIssue(RssReaderError):
     """
-    Export failure exception
+    HTML export failure exception
+    """
+
+
+class EpubExportIssue(RssReaderError):
+    """
+    EPUB export failure exception
     """
 
 
@@ -410,10 +417,9 @@ class FileCache(AbstractContextManager):
         """
         logging.info("FileCache load called for %s", self._file_name)
         try:
-            if self._file_name.stat().st_size == 0:
-                data = {}
-            else:
-                data = pickle.load(self._file)
+            data = (
+                {} if self._file_name.stat().st_size == 0 else pickle.load(self._file)
+            )
         except Exception as ex:
             logging.info("FileCache for %s cannot be loaded: %s", self._file_name, ex)
             raise CacheIssue from ex
@@ -780,7 +786,7 @@ FieldValueProcessor = Callable[[str, str], None]
 
 
 class ConsoleRenderer(FeedRenderer, ABC):
-    """SimpleHtmlParser
+    """
     An abstract class used for rendering feed for console
     """
 
@@ -889,93 +895,109 @@ class JsonRenderer(ConsoleRenderer):
         print(json.dumps(self._json))
 
 
-class FileRenderer(FeedRenderer, ABC):
+class HyperTextRenderer(FeedRenderer, ABC):
     """
-    An abstract class used for rendering feed for file
+    An abstract class used for rendering feed in HyperText for file
     """
+
+    STYLES = "h2,h3{text-align:center}.published{text-align:right;font-style:italic}"
 
     def __init__(self, file_name: str):
         self._file = Path(file_name)
+        self._parser = SimpleHtmlParser()
 
 
-class HtmlRenderer(FileRenderer):
+class HtmlRenderer(HyperTextRenderer):
     """
     A class used to render HTML file
     """
 
-    STYLES = """
-h2, h3 {
-  text-align: center;
-}
+    HTML_TEMPLATE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+    <style>{styles}</style><title>Feed</title></head><body>{body}</body></html>"""
 
-.published {
-  text-align: right;
-}
-"""
+    HEADER_TEMPLATE = "<h2>{title}</h2>"
 
-    HTML_TEMPLATE = """
-<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-{styles}
-</style>
-<title>Feed</title></head><body>{body}</body></html>"""
+    ENTRY_TEMPLATE = """<h3><a href ="{link}">{title}</a></h3>
+    <div class="published">{published}</div><div>{description}</div>"""
 
     def __init__(self, file_name: str):
         super().__init__(file_name)
         self._html = self.HTML_TEMPLATE
-        self._parser = SimpleHtmlParser()
+
+    def _apply_html_changes(self, body: str, styles: str = "{styles}") -> None:
+        self._html = self._html.format(body=body, styles=styles)
 
     def render_feed_start(self, header: FeedData) -> None:
-        header_html = """<h2>{title}</h2>"""
-        args = {}
-        for field in self.FEED_FIELDS:
-            args[field] = self._parser.convert(header.get(field, ""))
-        header_html = header_html.format(**args)
+        args = {
+            field: self._parser.convert(header.get(field, ""))
+            for field in self.FEED_FIELDS
+        }
 
-        self._html = self._html.format(styles="{styles}", body=f"{header_html}{{body}}")
+        rendered = self.HEADER_TEMPLATE.format(**args)
+        self._apply_html_changes(body=f"{rendered}{{body}}")
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        entry_html = """<h3><a href ="{link}">{title}</a></h3>
-        <div class="published">{published}</div><p>{description}</p>"""
         args = {}
         for field in self.ENTRY_FIELDS:
             value = entry.get(field, "")
             if value and field != "link":
                 value = self._parser.convert(value)
             args[field] = value
-        entry_html = entry_html.format(**args)
+        rendered = self.ENTRY_TEMPLATE.format(**args)
 
-        self._html = self._html.format(styles="{styles}", body=f"{entry_html}{{body}}")
+        self._apply_html_changes(body=f"{rendered}{{body}}")
 
     def render_feed_end(self) -> None:
         pass
 
     def render_exit(self) -> None:
-        self._html = self._html.format(styles=self.STYLES, body="")
+        self._apply_html_changes(body="", styles=self.STYLES)
         try:
             with open(self._file, "w", encoding="utf-8") as file:
                 file.write(self._html)
         except Exception as ex:
             logging.info("HTML file save failed with '%s'", ex)
-            raise ExportIssue from ex
+            raise HtmlExportIssue from ex
 
 
-class EpubRenderer(FileRenderer):
+class EpubRenderer(HyperTextRenderer):
     """
     A class used to render EPUB file
     """
 
+    def __init__(self, file_name: str):
+        super().__init__(file_name)
+        self._book = epub.EpubBook()
+        self._book.set_title("Feed")
+        self._book.set_language('en')
+        self._book.add_item(
+            epub.EpubItem(
+                uid="styles_main",
+                file_name="style/main.css",
+                media_type="text/css",
+                content=self.STYLES,
+            )
+        )
+
     def render_feed_start(self, header: FeedData) -> None:
-        raise NotImplementedError
+        pass
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        raise NotImplementedError
+        pass
 
     def render_feed_end(self) -> None:
-        raise NotImplementedError
+        pass
 
     def render_exit(self) -> None:
-        raise NotImplementedError
+        self._book.add_item(epub.EpubNcx())
+        self._book.add_item(epub.EpubNav())
+        try:
+            epub.write_epub(self._file, self._book)
+        except Exception as ex:
+            logging.info("EPUB file save failed with '%s'", ex)
+            raise EpubExportIssue from ex
+        if not self._file.is_file():
+            raise EpubExportIssue
 
 
 def parse_arguments() -> Namespace:
@@ -1019,13 +1041,12 @@ def parse_arguments() -> Namespace:
         type=check_non_negative,
         help="Limit news topics if this parameter provided",
     )
-    converter_group = parser.add_mutually_exclusive_group()
-    converter_group.add_argument(
+    parser.add_argument(
         "--to-html",
         help="Converts to HTML file",
         metavar="FILE_NAME",
     )
-    converter_group.add_argument(
+    parser.add_argument(
         "--to-epub",
         help="Converts to EPUB file",
         metavar="FILE_NAME",
@@ -1089,9 +1110,6 @@ def feed_processor(  # pylint: disable=too-many-arguments
     else:
         raise ValueError("At least url or date_filter is required")
 
-    if html_file and epub_file:
-        raise ValueError("Both html_file and epub_file cannot be set")
-
     renderers: list[FeedRenderer] = []
 
     if is_json:
@@ -1099,9 +1117,11 @@ def feed_processor(  # pylint: disable=too-many-arguments
 
     if html_file:
         renderers.append(HtmlRenderer(html_file))
-    elif epub_file:
+
+    if epub_file:
         renderers.append(EpubRenderer(epub_file))
-    elif not is_json:
+
+    if not (is_json or html_file or epub_file):
         renderers.append(TextRenderer())
 
     for feed in feeds:
@@ -1153,9 +1173,12 @@ def main() -> None:
     except CacheIssue:
         print("Working with cache failed. Try calling script with --cleanup")
         sys.exit(40)
-    except ExportIssue:
-        print("Cannot export to", args.to_html or args.to_epub)
+    except HtmlExportIssue:
+        print("Cannot export to", args.to_html)
         sys.exit(50)
+    except EpubExportIssue:
+        print("Cannot export to", args.to_epub)
+        sys.exit(60)
     except Exception as ex:  # pylint: disable=broad-except
         logging.info("Exception was raised '%s'", ex)
         print("Error happened during program execution.")
