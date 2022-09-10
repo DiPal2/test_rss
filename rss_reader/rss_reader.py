@@ -7,8 +7,6 @@ from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
 from functools import wraps
-import html
-from html.parser import HTMLParser
 import inspect
 import json
 import logging
@@ -20,6 +18,7 @@ from typing import Any, BinaryIO, Optional
 import uuid
 import xml.etree.ElementTree as ET
 
+from bs4 import BeautifulSoup
 import dateparser
 from ebooklib import epub
 from html2text import HTML2Text
@@ -730,58 +729,6 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
             self._add_entry_to_map(self._feed, data, cache_map_entry)
 
 
-class SimpleHtmlParser(HTMLParser):
-    """
-    A class used to sanitize HTML
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._start_cnt = 0
-        self._end_cnt = 0
-        self._parse_error = False
-
-    @call_logger("tag", "attrs")
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
-        self._start_cnt += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        self._end_cnt += 1
-
-    @call_logger("message")
-    def error(self, message: str) -> Any:
-        self._parse_error = True
-
-    def convert(self, text: str) -> str:
-        """
-        Prepare HTML/text for publishing inside HTML
-
-        :param text:
-            an input text or HTML
-
-        :return:
-            a string that can be used as a content in HTML
-        """
-        self._parse_error = False
-        self._start_cnt = 0
-        self._end_cnt = 0
-        self.feed(text)
-        self.close()
-        logging.info(
-            "html check: start=%s, end=%s, parse_error=%s",
-            self._start_cnt,
-            self._end_cnt,
-            self._parse_error,
-        )
-        is_html = (
-            not self._parse_error
-            and self._start_cnt
-            and self._end_cnt
-            and self._start_cnt >= self._end_cnt
-        )
-        return text if is_html else html.escape(text)
-
-
 FieldValueProcessor = Callable[[str, str], None]
 
 
@@ -902,9 +849,36 @@ class HyperTextRenderer(FeedRenderer, ABC):
 
     STYLES = "h2,h3{text-align:center}.published{text-align:right;font-style:italic}"
 
+    HEADER_TEMPLATE = "<h2>{title}</h2>"
+
+    ENTRY_TEMPLATE = """<h3><a href ="{link}" target="_blank">{title}</a></h3>
+    <div class="published">{published}</div><div>{description}</div>"""
+
     def __init__(self, file_name: str):
         self._file = Path(file_name)
-        self._parser = SimpleHtmlParser()
+
+    @staticmethod
+    def _to_html_ready(data: str) -> str:
+        if data.startswith("http:") or data.startswith("https:"):
+            return data
+        soup = BeautifulSoup(data, "html.parser")
+        return soup.prettify(encoding=None)  # type: ignore[no-any-return]
+
+    @call_logger("header")
+    def _header_to_html(self, header: FeedData) -> tuple[str, dict[str, str]]:
+        args = {
+            field: self._to_html_ready(header.get(field, ""))
+            for field in self.FEED_FIELDS
+        }
+        return self.HEADER_TEMPLATE.format(**args), args
+
+    @call_logger("entry")
+    def _entry_to_html(self, entry: FeedData) -> str:
+        args = {
+            field: self._to_html_ready(entry.get(field, ""))
+            for field in self.ENTRY_FIELDS
+        }
+        return self.ENTRY_TEMPLATE.format(**args)
 
 
 class HtmlRenderer(HyperTextRenderer):
@@ -915,46 +889,24 @@ class HtmlRenderer(HyperTextRenderer):
     HTML_TEMPLATE = """<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <style>{styles}</style><title>Feed</title></head><body>{body}</body></html>"""
 
-    HEADER_TEMPLATE = "<h2>{title}</h2>"
-
-    ENTRY_TEMPLATE = """<h3><a href ="{link}">{title}</a></h3>
-    <div class="published">{published}</div><div>{description}</div>"""
-
     def __init__(self, file_name: str):
         super().__init__(file_name)
-        self._html = self.HTML_TEMPLATE
-
-    def _apply_html_changes(self, body: str, styles: str = "{styles}") -> None:
-        self._html = self._html.format(body=body, styles=styles)
+        self._current_html = ""
 
     def render_feed_start(self, header: FeedData) -> None:
-        args = {
-            field: self._parser.convert(header.get(field, ""))
-            for field in self.FEED_FIELDS
-        }
-
-        rendered = self.HEADER_TEMPLATE.format(**args)
-        self._apply_html_changes(body=f"{rendered}{{body}}")
+        self._current_html += self._header_to_html(header)[0]
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        args = {}
-        for field in self.ENTRY_FIELDS:
-            value = entry.get(field, "")
-            if value and field != "link":
-                value = self._parser.convert(value)
-            args[field] = value
-        rendered = self.ENTRY_TEMPLATE.format(**args)
-
-        self._apply_html_changes(body=f"{rendered}{{body}}")
+        self._current_html += self._entry_to_html(entry)
 
     def render_feed_end(self) -> None:
         pass
 
     def render_exit(self) -> None:
-        self._apply_html_changes(body="", styles=self.STYLES)
+        result = self.HTML_TEMPLATE.format(styles=self.STYLES, body=self._current_html)
         try:
             with open(self._file, "w", encoding="utf-8") as file:
-                file.write(self._html)
+                file.write(result)
         except Exception as ex:
             logging.info("HTML file save failed with '%s'", ex)
             raise HtmlExportIssue from ex
@@ -969,7 +921,7 @@ class EpubRenderer(HyperTextRenderer):
         super().__init__(file_name)
         self._book = epub.EpubBook()
         self._book.set_title("Feed")
-        self._book.set_language('en')
+        self._book.set_language("en")
         self._book.add_item(
             epub.EpubItem(
                 uid="styles_main",
@@ -978,15 +930,24 @@ class EpubRenderer(HyperTextRenderer):
                 content=self.STYLES,
             )
         )
+        self._current_html = ""
+        self._feed_title = ""
+        self._feed_cnt = 0
 
     def render_feed_start(self, header: FeedData) -> None:
-        pass
+        self._current_html, converted_data = self._header_to_html(header)
+        self._feed_title = converted_data.get("title", "")
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        pass
+        self._current_html += self._entry_to_html(entry)
 
     def render_feed_end(self) -> None:
-        pass
+        self._feed_cnt += 1
+        chapter = epub.EpubHtml(
+            title=self._feed_title, file_name=f"feed_{self._feed_cnt}.xhtml", lang="en"
+        )
+        chapter.content = self._current_html
+        self._book.add_item(chapter)
 
     def render_exit(self) -> None:
         self._book.add_item(epub.EpubNcx())

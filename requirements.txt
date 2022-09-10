@@ -1,4 +1,5 @@
 html2text
 dateparser>=1.1
 requests>=2.27
+beautifulsoup4>=4.11
 ebooklib>=0.17
