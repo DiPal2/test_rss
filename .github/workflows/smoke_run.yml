@@ -48,3 +48,7 @@ jobs:
       - name: Export
         if: steps.install.outcome == 'success'
         run: rss_reader https://lifehacker.com/rss --to-epub lh.epub --to-html lh.html
+
+      - name: Check file sizes
+        if: steps.install.outcome == 'success'
+        run: python -c "import os; files=['lh.epub','lh.html']; for f in files: print(f'{f}: {os.stat(f)}')"

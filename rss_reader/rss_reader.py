@@ -860,18 +860,32 @@ class HyperTextRenderer(FeedRenderer, ABC):
     ENTRY_NOLINK_TEMPLATE = """<h3>{title}</h3><div class="published">{published}</div>
     <div>{description}</div>"""
 
-    ENTRY_LINK_TEMPLATE = """<h3><a href ="{link}" target="_blank">{title}</a></h3>
+    ENTRY_LINK_TEMPLATE = """<h3><a href="{link}" target="_blank">{title}</a></h3>
     <div class="published">{published}</div><div>{description}</div>"""
 
     def __init__(self, file_name: str):
         self._file = Path(file_name)
 
     @staticmethod
+    def _is_url(data: str) -> bool:
+        return data.startswith("http:") or data.startswith("https:")
+
+    @staticmethod
+    def _is_file_like(data: str) -> bool:
+        extensions = [".html", ".htm", ".xml", ".xhtml", ".txt"]
+        return (
+            "/" in data
+            or "\\" in data
+            or any(data.lower().endswith(ext) for ext in extensions)
+        )
+
+    @staticmethod
     def _to_html_ready(
         data: str, soup_processor: Optional[SoupProcessor] = None
     ) -> str:
-        if data.startswith("http:") or data.startswith("https:"):
-            return data
+        if len(data) <= 256 and "<" not in data:
+            if HyperTextRenderer._is_url(data) or HyperTextRenderer._is_file_like(data):
+                return data  # BeautifulSoup is not happy with such data
         soup = BeautifulSoup(data, "html.parser")
         if soup_processor:
             soup_processor(soup)
@@ -895,7 +909,7 @@ class HyperTextRenderer(FeedRenderer, ABC):
         }
         return (
             self.ENTRY_LINK_TEMPLATE.format(**args)
-            if args["link"]
+            if self._is_url(args["link"])
             else self.ENTRY_NOLINK_TEMPLATE.format(**args)
         )
 

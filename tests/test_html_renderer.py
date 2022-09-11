@@ -32,10 +32,10 @@ def fixture_file(tmp_path):
             {
                 "title": "Sure &amp;",
                 "published": "2022-08-03 03:20:00 EMT",
-                "link": "some_local.html",
+                "link": "http://one.com/rss",
                 "description": "Big Brother",
             },
-            """<h3><a href ="some_local.html" target="_blank">Sure &amp;</a>
+            """<h3><a href="http://one.com/rss" target="_blank">Sure &amp;</a>
 </h3>    <div class="published">2022-08-03 03:20:00 EMT</div><div>Big Brother</div>""",
             id="all",
         ),
