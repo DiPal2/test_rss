@@ -4,6 +4,7 @@
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, ArgumentTypeError, Namespace
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
 from functools import wraps
@@ -24,7 +25,7 @@ from ebooklib import epub
 from html2text import HTML2Text
 import requests
 
-__version_info__ = ("0", "4", "0")
+__version_info__ = ("0", "4", "1")
 __version__ = ".".join(__version_info__)
 
 
@@ -739,7 +740,6 @@ class ConsoleRenderer(FeedRenderer, ABC):
 
     def __init__(self, body_width: Optional[int] = None):
         self._html = HTML2Text(bodywidth=body_width or sys.maxsize)
-        self._html.images_to_alt = True
         self._html.default_image_alt = "image"
         self._html.single_line_break = True
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -842,6 +842,9 @@ class JsonRenderer(ConsoleRenderer):
         print(json.dumps(self._json))
 
 
+SoupProcessor = Callable[[BeautifulSoup], None]
+
+
 class HyperTextRenderer(FeedRenderer, ABC):
     """
     An abstract class used for rendering feed in HyperText for file
@@ -858,10 +861,14 @@ class HyperTextRenderer(FeedRenderer, ABC):
         self._file = Path(file_name)
 
     @staticmethod
-    def _to_html_ready(data: str) -> str:
+    def _to_html_ready(
+        data: str, soup_processor: Optional[SoupProcessor] = None
+    ) -> str:
         if data.startswith("http:") or data.startswith("https:"):
             return data
         soup = BeautifulSoup(data, "html.parser")
+        if soup_processor:
+            soup_processor(soup)
         return soup.prettify(encoding=None)  # type: ignore[no-any-return]
 
     @call_logger("header")
@@ -873,9 +880,11 @@ class HyperTextRenderer(FeedRenderer, ABC):
         return self.HEADER_TEMPLATE.format(**args), args
 
     @call_logger("entry")
-    def _entry_to_html(self, entry: FeedData) -> str:
+    def _entry_to_html(
+        self, entry: FeedData, soup_processor: Optional[SoupProcessor] = None
+    ) -> str:
         args = {
-            field: self._to_html_ready(entry.get(field, ""))
+            field: self._to_html_ready(entry.get(field, ""), soup_processor)
             for field in self.ENTRY_FIELDS
         }
         return self.ENTRY_TEMPLATE.format(**args)
@@ -917,41 +926,100 @@ class EpubRenderer(HyperTextRenderer):
     A class used to render EPUB file
     """
 
+    LOADING_THREAD_COUNT = 10
+
     def __init__(self, file_name: str):
         super().__init__(file_name)
         self._book = epub.EpubBook()
-        self._book.set_title("Feed")
+        self._book.set_title("Feeds")
         self._book.set_language("en")
-        self._book.add_item(
-            epub.EpubItem(
-                uid="styles_main",
-                file_name="style/main.css",
-                media_type="text/css",
-                content=self.STYLES,
-            )
+        self._book_styles = epub.EpubItem(
+            "styles_main", "style/main.css", "text/css", self.STYLES
         )
+        self._book.add_item(self._book_styles)
         self._current_html = ""
         self._feed_title = ""
         self._feed_cnt = 0
+        self._images_to_load: dict[str, str] = {}
+        self._feeds: list[epub.EpubHtml] = []
+
+    @staticmethod
+    def _add_epub_image(url: str, file_name: str) -> epub.EpubItem:
+        content = b""
+        content_type = ""
+        try:
+            logging.info("%s: attempt to get from %s", file_name, url)
+            request = requests.get(url, timeout=600)
+            logging.info(
+                "%s: request response %s, headers: %s",
+                file_name,
+                request.status_code,
+                request.headers,
+            )
+            if request.status_code == 200:
+                content = request.content
+                content_type = request.headers["Content-Type"]
+        except Exception as ex:  # pylint: disable=broad-except
+            logging.info("%s: exception: %s", file_name, ex)
+
+        uid = file_name.replace("/", "").replace(".", "")
+
+        return epub.EpubItem(uid, file_name, content_type, content)
+
+    def _add_local_images(self) -> None:
+        with ThreadPoolExecutor(max_workers=self.LOADING_THREAD_COUNT) as executor:
+            results = [
+                executor.submit(self._add_epub_image, url, file_name)
+                for url, file_name in self._images_to_load.items()
+            ]
+            wait(results)
+
+        for result in results:
+            self._book.add_item(result.result())
+
+    def _img_processor(self, soup: BeautifulSoup) -> None:
+        found = soup.img
+        while found:
+            if link := found.get("src"):
+                if link not in self._images_to_load:
+                    img_num = len(self._images_to_load) + 1
+                    _, _, img_ext = link.rpartition(".")
+                    file_name = f"images/{self._feed_cnt}/{img_num}.{img_ext}"
+                    found["src"] = file_name
+                    self._images_to_load[link] = file_name
+
+            found = found.find_next("img")
 
     def render_feed_start(self, header: FeedData) -> None:
+        self._feed_cnt += 1
         self._current_html, converted_data = self._header_to_html(header)
         self._feed_title = converted_data.get("title", "")
 
     def render_feed_entry(self, entry: FeedData) -> None:
-        self._current_html += self._entry_to_html(entry)
+        self._current_html += self._entry_to_html(entry, self._img_processor)
 
     def render_feed_end(self) -> None:
-        self._feed_cnt += 1
+        uid = f"feed_{self._feed_cnt}"
         chapter = epub.EpubHtml(
-            title=self._feed_title, file_name=f"feed_{self._feed_cnt}.xhtml", lang="en"
+            uid=uid,
+            file_name=f"{uid}.xhtml",
+            media_type="application/xhtml+xml",
+            content=self._current_html,
+            title=self._feed_title,
+            lang="en",
         )
-        chapter.content = self._current_html
+        chapter.add_item(self._book_styles)
         self._book.add_item(chapter)
+        self._feeds.append(chapter)
 
     def render_exit(self) -> None:
+        if self._images_to_load:
+            self._add_local_images()
+
+        self._book.toc = tuple(self._feeds)
         self._book.add_item(epub.EpubNcx())
         self._book.add_item(epub.EpubNav())
+        self._book.spine = ["nav"] + self._feeds
         try:
             epub.write_epub(self._file, self._book)
         except Exception as ex:

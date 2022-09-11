@@ -17,22 +17,25 @@ After that you can use `rss_reader` from any folder or `rss_reader.py` located i
 
 ## Usage
 
-`rss_reader.py  [-h] [--version] [--json] [--verbose] [--limit LIMIT] [--cleanup] [--date DATE] [source]`
+`rss_reader.py  [-h] [--version] [--json] [--verbose] [--limit LIMIT] [--to-html FILE_NAME] [--to-epub FILE_NAME] [--cleanup] [--date DATE] [source]`
 
-| Option          | Description                                                        |
-|-----------------|--------------------------------------------------------------------|
-| `-h`, `--help`  | show this help message and exit                                    |
-| `--version`     | show program's version number and exit                             |
-| `--json`        | Print result as JSON in stdout                                     |
-| `--verbose`     | Outputs verbose status messages                                    |
-| `--limit LIMIT` | Limit news topics if this parameter provided                       |
-| `source`        | RSS URL                                                            |
-| `--cleanup`     | Clear cached data                                                  |
-| `--date DATE`   | Limit news to only cached data with such published date (YYYYMMDD) |
+| Option                | Description                                                        |
+|-----------------------|--------------------------------------------------------------------|
+| `-h`, `--help`        | show this help message and exit                                    |
+| `--version`           | show program's version number and exit                             |
+| `--json`              | Print result as JSON in stdout                                     |
+| `--verbose`           | Outputs verbose status messages                                    |
+| `--limit LIMIT`       | Limit news topics if this parameter provided                       |
+| `--to-html FILE_NAME` | Export result to HTML file                                         |
+| `--to-epub FILE_NAME` | Export result to EPUB file                                         |
+| `source`              | RSS URL                                                            |
+| `--cleanup`           | Clear cached data                                                  |
+| `--date DATE`         | Limit news to only cached data with such published date (YYYYMMDD) |
 
 * At least `source` or `--date` or `--cleanup` is required
 * `--limit` affects saving news to cache
 * `DATE` filter is applied for all published news between 00:00:00.000 and 23:59:59.999 in your local time zone
+* If `--to-html` and/or `--to-epub` are given, there will be no console output unless `--json` and/or `--version` are used
 
 ### Example of generated JSON:
 ```json
