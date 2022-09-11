@@ -2,7 +2,7 @@
 
 import pytest
 
-from rss_reader.rss_reader import HtmlRenderer
+from rss_reader.rss_reader import HtmlRenderer, HtmlExportIssue
 
 
 @pytest.fixture(name="file")
@@ -18,9 +18,26 @@ def fixture_file(tmp_path):
     [
         pytest.param(
             {"title": """test 'one and "two &it"""},
-            """<h2></h2><h3><a href ="" target="_blank">test 'one and "two &amp;it
-</a></h3>    <div class="published"></div><div></div>""",
-            id="escape_chars",
+            """<h3>test 'one and "two &amp;it</h3>
+<div class="published"></div>    <div></div>""",
+            id="title",
+        ),
+        pytest.param(
+            {"title": "Funny `'&#x27;&nbsp;&#160;\u2019\u00a0", "other": "other"},
+            """<h3>Funny `''\u00a0\u00a0’</h3><div class="published"></div>
+    <div></div>""",
+            id="title_with_other",
+        ),
+        pytest.param(
+            {
+                "title": "Sure &amp;",
+                "published": "2022-08-03 03:20:00 EMT",
+                "link": "some_local.html",
+                "description": "Big Brother",
+            },
+            """<h3><a href ="some_local.html" target="_blank">Sure &amp;</a>
+</h3>    <div class="published">2022-08-03 03:20:00 EMT</div><div>Big Brother</div>""",
+            id="all",
         ),
     ],
 )
@@ -32,9 +49,7 @@ def test_renderer_entry(file, data, expected):
     file.unlink(missing_ok=True)
 
     renderer = HtmlRenderer(file)
-    renderer.render_feed_start({})
     renderer.render_feed_entry(data)
-    renderer.render_feed_end()
     renderer.render_exit()
 
     with open(file, "r", encoding="utf-8") as text_file:
@@ -43,3 +58,16 @@ def test_renderer_entry(file, data, expected):
     assert actual.replace("\n", "") == renderer.HTML_TEMPLATE.format(
         styles=renderer.STYLES, body=expected
     ).replace("\n", "")
+
+
+def test_renderer_exception(file):
+    """
+    Tests HtmlRenderer expected behaviour with bad scenarios
+    """
+    file.parent.mkdir(parents=True, exist_ok=True)
+
+    bad_file = file.parent
+
+    with pytest.raises(HtmlExportIssue):
+        renderer = HtmlRenderer(bad_file)
+        renderer.render_exit()

@@ -66,7 +66,7 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
 @pytest.mark.parametrize(
     "data,expected_j,expected_t",
     [
-        pytest.param({"other": "other"}, '[{"entries": [{}]}]\n', "", id="empty"),
+        pytest.param({"other": "other"}, '[{"entries": []}]\n', "", id="empty"),
         pytest.param(
             {"title": "test"},
             '[{"entries": [{"title": "test"}]}]\n',

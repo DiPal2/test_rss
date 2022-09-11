@@ -27,16 +27,16 @@ jobs:
       - name: Install packages
         run: pip install -e .[develop]
 
-      - name: Check styles with black
+      - name: Black
         run: black --check --diff .
 
-      - name: Check styles with pycodestyle
+      - name: Pycodestyle
         run: pycodestyle setup.py rss_reader tests
 
-      - name: Check styles with pylint
+      - name: Pylint
         run: pylint setup.py rss_reader tests
 
-      - name: Check styles with mypy
+      - name: Mypy
         run: |
           mypy --disallow-untyped-defs rss_reader
           mypy setup.py tests

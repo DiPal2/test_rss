@@ -17,7 +17,7 @@ import shutil
 import sys
 from typing import Any, BinaryIO, Optional
 import uuid
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 from bs4 import BeautifulSoup
 import dateparser
@@ -324,7 +324,7 @@ class StringFeedReader(FeedSource):
 
         logging.info("StringFeedReader started")
         try:
-            root = ET.fromstring(content)
+            root = ElementTree.fromstring(content)
         except Exception as ex:
             logging.info("XML parsing failed with '%s'", ex)
             raise NotRssContent from ex
@@ -336,7 +336,7 @@ class StringFeedReader(FeedSource):
             raise NotRssContent
 
     def _xml_children_to_dict(
-        self, xml_element: ET.Element, stop_element_name: Optional[str] = None
+        self, xml_element: ElementTree.Element, stop_element_name: Optional[str] = None
     ) -> FeedData:
         result: FeedData = {}
         for child in xml_element:
@@ -378,6 +378,8 @@ class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
         except Exception as ex:
             logging.info("WebFeedReader failed with '%s'", ex)
             raise ContentUnreachable from ex
+        if request.status_code != 200:
+            raise ContentUnreachable
         super().__init__(request.text)
 
 
@@ -832,7 +834,8 @@ class JsonRenderer(ConsoleRenderer):
 
         self._render_entry_fields(entry, entry_processor)
 
-        self._feed_entries.append(result)
+        if result:
+            self._feed_entries.append(result)
 
     def render_feed_end(self) -> None:
         self._feed_json["entries"] = self._feed_entries
@@ -854,7 +857,10 @@ class HyperTextRenderer(FeedRenderer, ABC):
 
     HEADER_TEMPLATE = "<h2>{title}</h2>"
 
-    ENTRY_TEMPLATE = """<h3><a href ="{link}" target="_blank">{title}</a></h3>
+    ENTRY_NOLINK_TEMPLATE = """<h3>{title}</h3><div class="published">{published}</div>
+    <div>{description}</div>"""
+
+    ENTRY_LINK_TEMPLATE = """<h3><a href ="{link}" target="_blank">{title}</a></h3>
     <div class="published">{published}</div><div>{description}</div>"""
 
     def __init__(self, file_name: str):
@@ -887,7 +893,11 @@ class HyperTextRenderer(FeedRenderer, ABC):
             field: self._to_html_ready(entry.get(field, ""), soup_processor)
             for field in self.ENTRY_FIELDS
         }
-        return self.ENTRY_TEMPLATE.format(**args)
+        return (
+            self.ENTRY_LINK_TEMPLATE.format(**args)
+            if args["link"]
+            else self.ENTRY_NOLINK_TEMPLATE.format(**args)
+        )
 
 
 class HtmlRenderer(HyperTextRenderer):
