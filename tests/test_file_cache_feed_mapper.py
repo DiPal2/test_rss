@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 
-from rss_reader.rss_reader import FileCacheFeedMapper
+from rss_reader.rss_reader import AppFileCache, FileCacheFeedMapper
 
 
 @pytest.fixture(name="home_path")
@@ -32,18 +32,16 @@ def test_file_cache_feed_mapper(home, home_path):  # pylint: disable=unused-argu
     """
     url = "any url that you want"
 
-    mapper = FileCacheFeedMapper()
-
-    feed_path = mapper.feed_to_path(url)
+    feed_path = FileCacheFeedMapper.feed_to_path(url)
 
     assert str(feed_path).startswith(str(home_path))
 
-    all_mapping = mapper.get_map()
+    all_mapping = FileCacheFeedMapper.get_map()
 
     assert str(all_mapping[url]).startswith(str(home_path))
 
-    mapper.reset_cache()
+    AppFileCache.reset_cache()
 
-    all_mapping = mapper.get_map()
+    all_mapping = FileCacheFeedMapper.get_map()
 
     assert all_mapping == {}

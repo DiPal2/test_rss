@@ -7,7 +7,8 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
-from functools import wraps
+from enum import Enum
+from functools import wraps, lru_cache
 import inspect
 import json
 import logging
@@ -18,6 +19,7 @@ import sys
 from typing import Any, BinaryIO, Optional
 import uuid
 from xml.etree import ElementTree
+import zlib
 
 from bs4 import BeautifulSoup
 import dateparser
@@ -98,6 +100,16 @@ class EpubExportIssue(RssReaderError):
     """
     EPUB export failure exception
     """
+
+
+class CacheStatus(Enum):
+    """
+    An enumeration of cache statuses
+    """
+
+    MISSING = 0
+    INVALID = 1
+    VALID = 2
 
 
 FeedData = dict[str, str]
@@ -215,7 +227,7 @@ class FeedRenderer(ABC):
 
 class FeedMiddleware:
     """
-    A class used to abstract feed(s) source with feed processor
+    A class used to call renders and cache writer for one feed source
     """
 
     def __init__(
@@ -234,29 +246,13 @@ class FeedMiddleware:
         self._cache_writer = cache_writer
         self._entry_count = 0
 
-    @property
-    def header(self) -> FeedData:
-        """
-        Returns feed header
-
-        :return:
-            A FeedData for header
-        """
+    def _header(self) -> FeedData:
         header = self._source.read_header()
         if self._cache_writer:
             self._cache_writer.write_header(header)
         return header
 
-    def entries(self, maximum: Optional[int] = None) -> Iterable[FeedData]:
-        """
-        Returns feed entries as an Iterable
-
-        :param maximum:
-            an int that limits processing of feed items
-
-        :return:
-            An Iterable of FeedData entries
-        """
+    def _entries(self, maximum: Optional[int] = None) -> Iterable[FeedData]:
         self._entry_count = 0
         for item in self._source.entry_iter():
             if self._cache_writer:
@@ -282,9 +278,9 @@ class FeedMiddleware:
             Nothing
         """
         for renderer in renderers:
-            renderer.render_feed_start(self.header)
+            renderer.render_feed_start(self._header())
 
-        for data in self.entries(maximum):
+        for data in self._entries(maximum):
             for renderer in renderers:
                 renderer.render_feed_entry(data)
 
@@ -378,7 +374,7 @@ class WebFeedReader(StringFeedReader):  # pylint: disable=too-few-public-methods
         except Exception as ex:
             logging.info("WebFeedReader failed with '%s'", ex)
             raise ContentUnreachable from ex
-        if request.status_code != 200:
+        if request.status_code != requests.codes.ok:  # pylint: disable=no-member
             raise ContentUnreachable
         super().__init__(request.text)
 
@@ -428,6 +424,7 @@ class FileCache(AbstractContextManager):
         if not isinstance(data, dict):
             logging.info("FileCache for %s loaded garbage", self._file_name)
             raise CacheIssue
+        logging.info("FileCache loaded data for %s", self._file_name)
         return data
 
     def save(self, data: dict) -> None:
@@ -457,21 +454,21 @@ class FileCacheFeedReader(FeedSource):
     A class used to read a feed from file cache
     """
 
-    def __init__(self, header_file: Path, entries: list[Path]):
+    def __init__(self, header: Path, entries: list[Path]):
         """
         Init feed reading from a file cache and constructs all the necessary attributes
 
-        :param header_file:
-            a Path to header file
+        :param header:
+            a Path to file cache for header
 
         :param entries:
-            a list of Paths to entries files
+            a list of Paths to file cache for entries
         """
-        self._header_file = header_file
+        self._header = header
         self._entries = entries
 
     def read_header(self) -> FeedData:
-        with FileCache(self._header_file) as cache:
+        with FileCache(self._header) as cache:
             result: FeedData = cache.load()
         return result
 
@@ -482,20 +479,16 @@ class FileCacheFeedReader(FeedSource):
                 yield result
 
 
-class FileCacheFeedMapper:
+class AppFileCache:
     """
-    A class used to map a feed to a cache folder
+    A class used to cache application specific data using files
     """
-
-    def __init__(self) -> None:
-        self._folder = self.cache_folder()
-        logging.info("Cache folder %s", self._folder)
-        self._map_file = self._folder / "feeds.bin"
 
     @staticmethod
+    @lru_cache(1)
     def cache_folder() -> Path:
         """
-        Get cache folder location
+        Get app cache folder location
 
         :return:
             Path
@@ -507,7 +500,10 @@ class FileCacheFeedMapper:
             cache_dir = home / "Library" / "Application Support"
         else:
             cache_dir = home / ".local" / "share"
-        return cache_dir / "rss_reader"
+
+        app_cache_dir = cache_dir / "rss_reader"
+        logging.info("Cache folder %s", app_cache_dir)
+        return app_cache_dir
 
     @staticmethod
     def reset_cache() -> None:
@@ -517,7 +513,7 @@ class FileCacheFeedMapper:
         :return:
             Nothing
         """
-        FileCacheFeedMapper._rmdir(FileCacheFeedMapper.cache_folder())
+        AppFileCache._rmdir(AppFileCache.cache_folder())
         print("Cache was erased successfully")
 
     @staticmethod
@@ -529,14 +525,31 @@ class FileCacheFeedMapper:
                 if item.is_file() or item.is_symlink():
                     item.unlink(missing_ok=True)
                 elif item.is_dir():
-                    FileCacheFeedMapper._rmdir(item)
+                    AppFileCache._rmdir(item)
             folder.rmdir()
             logging.info("Removed empty folder %s", folder)
         except Exception as ex:
             logging.info("_rmdir %s failed with '%s'", folder, ex)
             raise CacheIssue from ex
 
-    def feed_to_path(self, url: str) -> Path:
+
+class FileCacheFeedMapper:
+    """
+    A class used to map a feed to a cache folder
+    """
+
+    @staticmethod
+    @lru_cache(1)
+    def _cache_folder() -> Path:
+        return AppFileCache.cache_folder()
+
+    @staticmethod
+    @lru_cache(1)
+    def _map_file() -> Path:
+        return FileCacheFeedMapper._cache_folder() / "feeds.bin"
+
+    @staticmethod
+    def feed_to_path(url: str) -> Path:
         """
         Converts a feed url to an appropriate cache folder
 
@@ -546,7 +559,7 @@ class FileCacheFeedMapper:
         :return:
             a Path to a cache folder
         """
-        with FileCache(self._map_file) as cache:
+        with FileCache(FileCacheFeedMapper._map_file()) as cache:
             mapper = cache.load()
             current = mapper.get(url)
             if not current:
@@ -555,20 +568,24 @@ class FileCacheFeedMapper:
                 mapper[url] = current
                 cache.save(mapper)
 
-        feed_path: Path = self._folder / str(current)
+        feed_path: Path = FileCacheFeedMapper._cache_folder() / str(current)
         logging.info("Using url %s with cache: %s", url, feed_path)
         return feed_path
 
-    def get_map(self) -> dict[str, Path]:
+    @staticmethod
+    def get_map() -> dict[str, Path]:
         """
         Returns full map between feed urls and cache folders
 
         :return:
             a dictionary of urls with feed cache Path
         """
-        with FileCache(self._map_file) as cache:
+        with FileCache(FileCacheFeedMapper._map_file()) as cache:
             mapper = cache.load()
-        return {key: self._folder / str(value) for key, value in mapper.items()}
+        return {
+            key: FileCacheFeedMapper._cache_folder() / str(value)
+            for key, value in mapper.items()
+        }
 
 
 class FileCacheFeedHelper:
@@ -597,7 +614,7 @@ class FileCacheFeedHelper:
     def _entry_datetime(map_entry: FileCacheMapEntry) -> Optional[datetime]:
         return map_entry[1]
 
-    def _filter_feed_entries(self, feed: Path, date_filter: date) -> list[Path]:
+    def _filter_entries_in_feed(self, feed: Path, date_filter: date) -> list[Path]:
         mapper = self._load_map_of_entries(feed)
         local_tz = datetime.now(timezone.utc).astimezone().tzinfo
         date_from = datetime.combine(date_filter, time.min, local_tz)
@@ -628,13 +645,13 @@ class FileCacheFeedHelper:
             raised when there is no filtered data
         """
         filtered = []
-        feeds = FileCacheFeedMapper().get_map()
+        feeds = FileCacheFeedMapper.get_map()
 
         if url:
             feeds = {url: feeds[url]} if url in feeds else {}
 
         for feed_path in feeds.values():
-            if entries := self._filter_feed_entries(feed_path, date_filter):
+            if entries := self._filter_entries_in_feed(feed_path, date_filter):
                 feed_reader = FileCacheFeedReader(feed_path / self.HEADER_FILE, entries)
                 filtered.append(FeedMiddleware(feed_reader))
 
@@ -649,13 +666,13 @@ class FileCacheFeedHelper:
             entries_map: dict = cache.load()
         return entries_map
 
-    def _is_good_entry_in_map(self, feed_path: Path, data: FeedData) -> bool:
+    def _entry_in_map_status(self, feed_path: Path, data: FeedData) -> CacheStatus:
         if self.GUID_FIELD not in data:
-            return False
+            return CacheStatus.MISSING
         guid = data[self.GUID_FIELD]
         mapper = self._load_map_of_entries(feed_path)
         if guid not in mapper:
-            return False
+            return CacheStatus.MISSING
         file_name, _, is_dirty = mapper[guid]
         logging.info(
             "%s entry %s exists in cache: %s",
@@ -663,7 +680,7 @@ class FileCacheFeedHelper:
             guid,
             file_name,
         )
-        return not is_dirty
+        return CacheStatus.INVALID if is_dirty else CacheStatus.VALID
 
     @staticmethod
     def new_cache_map_entry(data: FeedData) -> FileCacheMapEntry:
@@ -716,20 +733,173 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
             an address of a feed
         """
         super().__init__()
-        self._feed = FileCacheFeedMapper().feed_to_path(url)
+        self._feed = FileCacheFeedMapper.feed_to_path(url)
 
     def write_header(self, data: FeedData) -> None:
         with FileCache(self._feed / self.HEADER_FILE) as cache:
             cache.save(data)
 
     def write_entry(self, data: FeedData) -> None:
-        if self._is_good_entry_in_map(self._feed, data):
+        if self._entry_in_map_status(self._feed, data) == CacheStatus.VALID:
             return
         if cache_map_entry := self.new_cache_map_entry(data):
             full_name = self._entry_full_path(self._feed, cache_map_entry)
             with FileCache(full_name) as cache:
                 cache.save(data)
             self._add_entry_to_map(self._feed, data, cache_map_entry)
+
+
+WebFileCacheMapRow = tuple[str, datetime, str]
+
+
+class SafeWebFileCache:  # pylint: disable=too-few-public-methods
+    """
+    A class used to cache content from web
+    """
+
+    @staticmethod
+    @lru_cache(1)
+    def _cache_folder() -> Path:
+        return AppFileCache.cache_folder() / "web"
+
+    @staticmethod
+    def _map_file_name() -> str:
+        return "content.bin"
+
+    @staticmethod
+    def _load_from_web(url: str) -> requests.Response:
+        logging.info("%s load attempt", url)
+        request = requests.get(url, timeout=600)
+        logging.info(
+            "%s request status code %s, headers: %s",
+            url,
+            request.status_code,
+            request.headers,
+        )
+        return request
+
+    @staticmethod
+    def _map_row_status(map_entry: Optional[WebFileCacheMapRow]) -> CacheStatus:
+        if not map_entry:
+            return CacheStatus.MISSING
+        _, expiration_date_time, _ = map_entry
+        if datetime.now(timezone.utc) < expiration_date_time:
+            return CacheStatus.VALID
+        return CacheStatus.INVALID
+
+    @staticmethod
+    def _url_to_cache_path(url: str) -> Path:
+        hashed = f"{zlib.adler32(str.encode(url)):010}"
+        path = SafeWebFileCache._cache_folder() / hashed[:4] / hashed[4:7] / hashed[7:]
+        logging.info("%s hash folder: %s", url, path)
+        return path
+
+    @staticmethod
+    @call_logger("cache_path")
+    def _get_hash_map(cache_path: Path) -> dict[str, WebFileCacheMapRow]:
+        cache_map_file = cache_path / SafeWebFileCache._map_file_name()
+        with FileCache(cache_map_file) as cache:
+            return cache.load()
+
+    @staticmethod
+    @call_logger("cache_info", "content_type")
+    def _new_hash_map_row(cache_info: str, content_type: str) -> WebFileCacheMapRow:
+        parsed: dict[str, Optional[int]] = {"max-age": None, "s-maxage": None}
+        for cmd in cache_info.split(","):
+            cmd = cmd.strip()
+            parts = cmd.split("=", 1)
+            key = parts[0].strip()
+            if key in parsed:
+                try:
+                    parsed[key] = int(parts[1].strip())
+                except ValueError:
+                    logging.info("Cache info failed to parse %s", cmd)
+
+        file_name = f"{uuid.uuid4().hex}.bin"
+        expiration_date_time = datetime.now(timezone.utc)
+        if max_age := parsed["s-maxage"] or parsed["max-age"]:
+            expiration_date_time += timedelta(seconds=max_age)
+
+        return file_name, expiration_date_time, content_type
+
+    @staticmethod
+    def _add_row_to_hash_map(url: str, cache_map_row: WebFileCacheMapRow) -> None:
+        cache_path = SafeWebFileCache._url_to_cache_path(url)
+        with FileCache(cache_path / SafeWebFileCache._map_file_name()) as cache:
+            mapper = cache.load()
+            mapper[url] = cache_map_row
+            cache.save(mapper)
+
+    @staticmethod
+    def _load_from_cache(
+        cache_path: Path, map_entry: WebFileCacheMapRow
+    ) -> tuple[bytes, str]:
+        with open(cache_path / map_entry[0], "rb") as file:
+            return file.read(), map_entry[2]
+
+    @staticmethod
+    @call_logger("cache_path", "map_entry")
+    def _save_to_file(
+        cache_path: Path, map_entry: WebFileCacheMapRow, content: bytes
+    ) -> None:
+        with open(cache_path / map_entry[0], "wb") as file:
+            file.write(content)
+
+    @staticmethod
+    def load_url(url: str, is_cache_only: bool) -> tuple[bytes, str]:
+        """
+        Loads content from URL or local file cache
+
+        :param url:
+            an address
+
+        :param is_cache_only:
+            whether to download from web if there is no local cache
+
+        :return:
+            a tuple of content and content type
+        """
+        try:
+            url_cache_path = SafeWebFileCache._url_to_cache_path(url)
+            cache_map = SafeWebFileCache._get_hash_map(url_cache_path)
+            if cache_map_row := cache_map.get(url):
+                status = SafeWebFileCache._map_row_status(cache_map_row)
+                if (
+                    status == CacheStatus.VALID
+                    or is_cache_only
+                    and status == CacheStatus.INVALID
+                ):
+                    return SafeWebFileCache._load_from_cache(
+                        url_cache_path, cache_map_row
+                    )
+        except Exception as ex:  # pylint: disable=broad-except
+            logging.info("%s cache load exception: %s", url, ex)
+
+        if is_cache_only:
+            return b"", ""
+
+        try:
+            resp = SafeWebFileCache._load_from_web(url)
+            if resp.status_code == requests.codes.ok:  # pylint: disable=no-member
+                content = resp.content
+                headers = resp.headers
+                content_type = headers.get(
+                    "content-type", headers.get("Content-Type", "")
+                )
+                cache_info = headers.get(
+                    "cache-control", headers.get("Cache-Control", "")
+                )
+                new_row = SafeWebFileCache._new_hash_map_row(cache_info, content_type)
+                SafeWebFileCache._add_row_to_hash_map(url, new_row)
+                SafeWebFileCache._save_to_file(
+                    SafeWebFileCache._url_to_cache_path(url), new_row, content
+                )
+                return content, content_type
+        except Exception as ex:  # pylint: disable=broad-except
+            logging.info("%s web load exception: %s", url, ex)
+            raise
+
+        return b"", ""
 
 
 FieldValueProcessor = Callable[[str, str], None]
@@ -857,7 +1027,7 @@ class HyperTextRenderer(FeedRenderer, ABC):
 
     HEADER_TEMPLATE = "<h2>{title}</h2>"
 
-    ENTRY_NOLINK_TEMPLATE = """<h3>{title}</h3><div class="published">{published}</div>
+    ENTRY_NO_LINK_TEMPLATE = """<h3>{title}</h3><div class="published">{published}</div>
     <div>{description}</div>"""
 
     ENTRY_LINK_TEMPLATE = """<h3><a href="{link}" target="_blank">{title}</a></h3>
@@ -910,7 +1080,7 @@ class HyperTextRenderer(FeedRenderer, ABC):
         return (
             self.ENTRY_LINK_TEMPLATE.format(**args)
             if self._is_url(args["link"])
-            else self.ENTRY_NOLINK_TEMPLATE.format(**args)
+            else self.ENTRY_NO_LINK_TEMPLATE.format(**args)
         )
 
 
@@ -945,14 +1115,23 @@ class HtmlRenderer(HyperTextRenderer):
             raise HtmlExportIssue from ex
 
 
-class EpubRenderer(HyperTextRenderer):
+class EpubRenderer(HyperTextRenderer):  # pylint: disable=too-many-instance-attributes
     """
     A class used to render EPUB file
     """
 
     LOADING_THREAD_COUNT = 10
 
-    def __init__(self, file_name: str):
+    def __init__(self, file_name: str, is_cache_only: bool):
+        """
+        Init attributes for EPUB rendering
+
+        :param file_name:
+            a name of the file to be written
+
+        :param is_cache_only:
+            whether to use external content from local cache only
+        """
         super().__init__(file_name)
         self._book = epub.EpubBook()
         self._book.set_title("Feeds")
@@ -961,45 +1140,12 @@ class EpubRenderer(HyperTextRenderer):
             "styles_main", "style/main.css", "text/css", self.STYLES
         )
         self._book.add_item(self._book_styles)
+        self._is_cache_only = is_cache_only
         self._current_html = ""
         self._feed_title = ""
         self._feed_cnt = 0
         self._images_to_load: dict[str, str] = {}
         self._feeds: list[epub.EpubHtml] = []
-
-    @staticmethod
-    def _add_epub_image(url: str, file_name: str) -> epub.EpubItem:
-        content = b""
-        content_type = ""
-        try:
-            logging.info("%s: attempt to get from %s", file_name, url)
-            request = requests.get(url, timeout=600)
-            logging.info(
-                "%s: request response %s, headers: %s",
-                file_name,
-                request.status_code,
-                request.headers,
-            )
-            if request.status_code == 200:
-                content = request.content
-                content_type = request.headers["Content-Type"]
-        except Exception as ex:  # pylint: disable=broad-except
-            logging.info("%s: exception: %s", file_name, ex)
-
-        uid = file_name.replace("/", "").replace(".", "")
-
-        return epub.EpubItem(uid, file_name, content_type, content)
-
-    def _add_local_images(self) -> None:
-        with ThreadPoolExecutor(max_workers=self.LOADING_THREAD_COUNT) as executor:
-            results = [
-                executor.submit(self._add_epub_image, url, file_name)
-                for url, file_name in self._images_to_load.items()
-            ]
-            wait(results)
-
-        for result in results:
-            self._book.add_item(result.result())
 
     def _img_processor(self, soup: BeautifulSoup) -> None:
         found = soup.img
@@ -1008,11 +1154,32 @@ class EpubRenderer(HyperTextRenderer):
                 if link not in self._images_to_load:
                     img_num = len(self._images_to_load) + 1
                     _, _, img_ext = link.rpartition(".")
-                    file_name = f"images/{self._feed_cnt}/{img_num}.{img_ext}"
-                    found["src"] = file_name
-                    self._images_to_load[link] = file_name
+                    epub_file_name = f"images/{self._feed_cnt}/{img_num}.{img_ext}"
+                    found["src"] = epub_file_name
+                    self._images_to_load[link] = epub_file_name
 
             found = found.find_next("img")
+
+    @staticmethod
+    def _add_epub_image(
+        url: str, is_cache_only: bool, epub_file_name: str
+    ) -> epub.EpubItem:
+        content, content_type = SafeWebFileCache.load_url(url, is_cache_only)
+        uid = epub_file_name.replace("/", "").replace(".", "")
+        return epub.EpubItem(uid, epub_file_name, content_type, content)
+
+    def _add_local_images(self) -> None:
+        with ThreadPoolExecutor(max_workers=self.LOADING_THREAD_COUNT) as executor:
+            results = [
+                executor.submit(
+                    self._add_epub_image, url, self._is_cache_only, epub_file_name
+                )
+                for url, epub_file_name in self._images_to_load.items()
+            ]
+            wait(results)
+
+        for result in results:
+            self._book.add_item(result.result())
 
     def render_feed_start(self, header: FeedData) -> None:
         self._feed_cnt += 1
@@ -1139,7 +1306,7 @@ def feed_processor(  # pylint: disable=too-many-arguments
         an int that limits processing of items in the feed (0 means no limit)
 
     :param is_json:
-        should data be displayed in JSON format (False is default)
+        whether the data should be displayed in JSON format (False is default)
 
     :param date_filter:
         should cache be used to filter by published date (optional)
@@ -1155,9 +1322,11 @@ def feed_processor(  # pylint: disable=too-many-arguments
     """
 
     limit = None if limit == 0 else limit
+    only_local_cache = False
 
     if date_filter:
         feeds = FileCacheFeedHelper().filter_entries(date_filter, url)
+        only_local_cache = True
     elif url:
         feeds = [FeedMiddleware(WebFeedReader(url), FileCacheFeedWriter(url))]
     else:
@@ -1172,7 +1341,7 @@ def feed_processor(  # pylint: disable=too-many-arguments
         renderers.append(HtmlRenderer(html_file))
 
     if epub_file:
-        renderers.append(EpubRenderer(epub_file))
+        renderers.append(EpubRenderer(epub_file, only_local_cache))
 
     if not (is_json or html_file or epub_file):
         renderers.append(TextRenderer())
@@ -1200,7 +1369,7 @@ def main() -> None:
     try:
         logging.info("Parsed arguments: %s", args)
         if args.cleanup:
-            FileCacheFeedMapper.reset_cache()
+            AppFileCache.reset_cache()
         if args.url or args.date:
             feed_processor(
                 args.url,
