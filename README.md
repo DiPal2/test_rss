@@ -94,6 +94,14 @@ rss_reader
 │   ├── header.bin                                         (dictionary for feed header information)
 │   ├── entries.bin                                        (mapping for feed entry(guid, published_date_with_timezone, file_name_with_entry_dictionary))
 ....................
+└── web                                                    (folder for storing web images loaded for EPUB export)
+    ├── 1032                                               (1-4 digits from hashed function appplied on 1st web image URL)
+    │   └── 467                                            (5-7 digits from hashed function appplied on 1st web image URL)
+    │       └── 295                                        (8-10 digits from hashed function appplied on 1st web image URL)
+    │           ├── content.bin                            (mapping for hashed URL (local_file_name, cache_expiration, content_type))
+    │           └── 5d6d77216eb24fc4a606ac6b6d04d592.bin   (content of 1st web image URL)
+    ├── 0435                                               (1-4 digits from hashed function appplied on 2nd web image URL)
+....................
 ```
 
 ## Testing

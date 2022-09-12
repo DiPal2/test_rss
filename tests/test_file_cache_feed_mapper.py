@@ -1,29 +1,8 @@
 """tests for FileCacheFeedMapper"""
 
-from pathlib import Path
-import pytest
-
 from rss_reader.rss_reader import AppFileCache, FileCacheFeedMapper
-
-
-@pytest.fixture(name="home_path")
-def fixture_home_path(tmp_path):
-    """
-    A fixture for path for storing cache
-    """
-    return tmp_path / "rss_test"
-
-
-@pytest.fixture(name="home")
-def fixture_home(monkeypatch, home_path):
-    """
-    A fixture for Path.home()
-    """
-
-    def mock_return():
-        return home_path
-
-    monkeypatch.setattr(Path, "home", mock_return)
+from tests.helpers import fixture_home  # pylint: disable=unused-import
+from tests.helpers import fixture_home_path  # pylint: disable=unused-import
 
 
 def test_file_cache_feed_mapper(home, home_path):  # pylint: disable=unused-argument

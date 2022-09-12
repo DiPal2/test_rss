@@ -17,6 +17,40 @@ def fixture_file(tmp_path):
     "data,expected",
     [
         pytest.param(
+            {"title": "simple&nothing'more"},
+            "<h2>simple&amp;nothing'more</h2>",
+            id="title",
+        ),
+        pytest.param(
+            {"title": "Super News from New century!", "other": "other"},
+            "<h2>Super News from New century!</h2>",
+            id="title_with_other",
+        ),
+    ],
+)
+def test_renderer_feed_start(file, data, expected):
+    """
+    Tests render_feed_start in HtmlRenderer
+    """
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.unlink(missing_ok=True)
+
+    renderer = HtmlRenderer(file)
+    renderer.render_feed_start(data)
+    renderer.render_exit()
+
+    with open(file, "r", encoding="utf-8") as text_file:
+        actual = text_file.read()
+
+    assert actual.replace("\n", "") == renderer.HTML_TEMPLATE.format(
+        styles=renderer.STYLES, body=expected
+    ).replace("\n", "")
+
+
+@pytest.mark.parametrize(
+    "data,expected",
+    [
+        pytest.param(
             {"title": """test 'one and "two &it"""},
             """<h3>test 'one and "two &amp;it</h3>
 <div class="published"></div>    <div></div>""",
@@ -41,9 +75,9 @@ def fixture_file(tmp_path):
         ),
     ],
 )
-def test_renderer_entry(file, data, expected):
+def test_renderer_feed_entry(file, data, expected):
     """
-    Tests render_entry in HtmlRenderer
+    Tests render_feed_entry in HtmlRenderer
     """
     file.parent.mkdir(parents=True, exist_ok=True)
     file.unlink(missing_ok=True)

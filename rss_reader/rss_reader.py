@@ -740,7 +740,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
 
 class WebFileCacheMapRow:
     """
-    A class used to represent cache map row in SafeWebFileCache
+    A class used to represent a row in a map file for web file cache
     """
 
     def __init__(self, file_name: str, expiration: datetime, content_type: str) -> None:
@@ -748,7 +748,7 @@ class WebFileCacheMapRow:
         self._expiration = expiration
         self._content_type = content_type
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         attributes = f"{self._file_name}, {self._expiration}, {self._content_type}"
         return f"WebFileCacheMapRow({attributes})"
 

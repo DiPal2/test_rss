@@ -1,4 +1,4 @@
-"""tests for FeedToDict"""
+"""tests for StringFeedReader"""
 
 import json
 import pytest

@@ -3,14 +3,15 @@
 import pytest
 
 from rss_reader.rss_reader import FileCache, CacheIssue
+from tests.helpers import fixture_home_path  # pylint: disable=unused-import
 
 
 @pytest.fixture(name="file")
-def fixture_file(tmp_path):
+def fixture_file(home_path):
     """
     A fixture for test file
     """
-    return tmp_path / "rss_test" / "test.bin"
+    return home_path / "test.bin"
 
 
 def test_file_cache(file):

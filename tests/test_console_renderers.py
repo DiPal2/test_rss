@@ -42,9 +42,9 @@ def fixture_renderer_type(request):
         ),
     ],
 )
-def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
+def test_renderer_feed_start(renderer_type, data, expected_j, expected_t, capfd):
     """
-    Tests render_header in renders
+    Tests render_feed_start in renders
     """
     if renderer_type == JSON_RENDERER:
         renderer = JsonRenderer()
@@ -117,9 +117,9 @@ def test_renderer_header(renderer_type, data, expected_j, expected_t, capfd):
         ),
     ],
 )
-def test_renderer_entry(renderer_type, data, expected_j, expected_t, capfd):
+def test_renderer_feed_entry(renderer_type, data, expected_j, expected_t, capfd):
     """
-    Tests render_entry in renders
+    Tests render_feed_entry in renders
     """
     if renderer_type == JSON_RENDERER:
         renderer = JsonRenderer()
