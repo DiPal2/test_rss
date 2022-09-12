@@ -51,4 +51,4 @@ jobs:
 
       - name: Check file stat
         if: steps.install.outcome == 'success'
-        run: python -c "import os; f='lh.epub'; print(f'{f}: {os.stat(f)}'); f='lh.html'; print(f'{f}: {os.stat(f)}')"
+        run: python -c "import os; f='lh.epub'; print(f+' '+str(os.stat(f))); f='lh.html'; print(f+' '+str(os.stat(f)))"

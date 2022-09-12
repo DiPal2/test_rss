@@ -7,7 +7,6 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager
 from datetime import date, datetime, time, timedelta, timezone
-from enum import Enum
 from functools import wraps, lru_cache
 import inspect
 import json
@@ -100,16 +99,6 @@ class EpubExportIssue(RssReaderError):
     """
     EPUB export failure exception
     """
-
-
-class CacheStatus(Enum):
-    """
-    An enumeration of cache statuses
-    """
-
-    MISSING = 0
-    INVALID = 1
-    VALID = 2
 
 
 FeedData = dict[str, str]
@@ -666,13 +655,13 @@ class FileCacheFeedHelper:
             entries_map: dict = cache.load()
         return entries_map
 
-    def _entry_in_map_status(self, feed_path: Path, data: FeedData) -> CacheStatus:
+    def _is_entry_in_map_good(self, feed_path: Path, data: FeedData) -> bool:
         if self.GUID_FIELD not in data:
-            return CacheStatus.MISSING
+            return False
         guid = data[self.GUID_FIELD]
         mapper = self._load_map_of_entries(feed_path)
         if guid not in mapper:
-            return CacheStatus.MISSING
+            return False
         file_name, _, is_dirty = mapper[guid]
         logging.info(
             "%s entry %s exists in cache: %s",
@@ -680,7 +669,7 @@ class FileCacheFeedHelper:
             guid,
             file_name,
         )
-        return CacheStatus.INVALID if is_dirty else CacheStatus.VALID
+        return not is_dirty
 
     @staticmethod
     def new_cache_map_entry(data: FeedData) -> FileCacheMapEntry:
@@ -740,7 +729,7 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
             cache.save(data)
 
     def write_entry(self, data: FeedData) -> None:
-        if self._entry_in_map_status(self._feed, data) == CacheStatus.VALID:
+        if self._is_entry_in_map_good(self._feed, data):
             return
         if cache_map_entry := self.new_cache_map_entry(data):
             full_name = self._entry_full_path(self._feed, cache_map_entry)
@@ -749,7 +738,49 @@ class FileCacheFeedWriter(FileCacheFeedHelper, CacheFeedWriter):
             self._add_entry_to_map(self._feed, data, cache_map_entry)
 
 
-WebFileCacheMapRow = tuple[str, datetime, str]
+class WebFileCacheMapRow:
+    """
+    A class used to represent cache map row in SafeWebFileCache
+    """
+
+    def __init__(self, file_name: str, expiration: datetime, content_type: str) -> None:
+        self._file_name = file_name
+        self._expiration = expiration
+        self._content_type = content_type
+
+    def __repr__(self):
+        attributes = f"{self._file_name}, {self._expiration}, {self._content_type}"
+        return f"WebFileCacheMapRow({attributes})"
+
+    @property
+    def file_name(self) -> str:
+        """
+        Local file name
+
+        :return:
+            string
+        """
+        return self._file_name
+
+    @property
+    def expiration(self) -> datetime:
+        """
+        Expiration datetime of cached file
+
+        :return:
+            datetime
+        """
+        return self._expiration
+
+    @property
+    def content_type(self) -> str:
+        """
+        Content type of cached file
+
+        :return:
+            string
+        """
+        return self._content_type
 
 
 class SafeWebFileCache:  # pylint: disable=too-few-public-methods
@@ -767,27 +798,7 @@ class SafeWebFileCache:  # pylint: disable=too-few-public-methods
         return "content.bin"
 
     @staticmethod
-    def _load_from_web(url: str) -> requests.Response:
-        logging.info("%s load attempt", url)
-        request = requests.get(url, timeout=600)
-        logging.info(
-            "%s request status code %s, headers: %s",
-            url,
-            request.status_code,
-            request.headers,
-        )
-        return request
-
-    @staticmethod
-    def _map_row_status(map_entry: Optional[WebFileCacheMapRow]) -> CacheStatus:
-        if not map_entry:
-            return CacheStatus.MISSING
-        _, expiration_date_time, _ = map_entry
-        if datetime.now(timezone.utc) < expiration_date_time:
-            return CacheStatus.VALID
-        return CacheStatus.INVALID
-
-    @staticmethod
+    @lru_cache(1)
     def _url_to_cache_path(url: str) -> Path:
         hashed = f"{zlib.adler32(str.encode(url)):010}"
         path = SafeWebFileCache._cache_folder() / hashed[:4] / hashed[4:7] / hashed[7:]
@@ -820,30 +831,16 @@ class SafeWebFileCache:  # pylint: disable=too-few-public-methods
         if max_age := parsed["s-maxage"] or parsed["max-age"]:
             expiration_date_time += timedelta(seconds=max_age)
 
-        return file_name, expiration_date_time, content_type
+        return WebFileCacheMapRow(file_name, expiration_date_time, content_type)
 
     @staticmethod
+    @call_logger("url", "cache_map_row")
     def _add_row_to_hash_map(url: str, cache_map_row: WebFileCacheMapRow) -> None:
         cache_path = SafeWebFileCache._url_to_cache_path(url)
         with FileCache(cache_path / SafeWebFileCache._map_file_name()) as cache:
             mapper = cache.load()
             mapper[url] = cache_map_row
             cache.save(mapper)
-
-    @staticmethod
-    def _load_from_cache(
-        cache_path: Path, map_entry: WebFileCacheMapRow
-    ) -> tuple[bytes, str]:
-        with open(cache_path / map_entry[0], "rb") as file:
-            return file.read(), map_entry[2]
-
-    @staticmethod
-    @call_logger("cache_path", "map_entry")
-    def _save_to_file(
-        cache_path: Path, map_entry: WebFileCacheMapRow, content: bytes
-    ) -> None:
-        with open(cache_path / map_entry[0], "wb") as file:
-            file.write(content)
 
     @staticmethod
     def load_url(url: str, is_cache_only: bool) -> tuple[bytes, str]:
@@ -862,16 +859,14 @@ class SafeWebFileCache:  # pylint: disable=too-few-public-methods
         try:
             url_cache_path = SafeWebFileCache._url_to_cache_path(url)
             cache_map = SafeWebFileCache._get_hash_map(url_cache_path)
-            if cache_map_row := cache_map.get(url):
-                status = SafeWebFileCache._map_row_status(cache_map_row)
-                if (
-                    status == CacheStatus.VALID
-                    or is_cache_only
-                    and status == CacheStatus.INVALID
-                ):
-                    return SafeWebFileCache._load_from_cache(
-                        url_cache_path, cache_map_row
-                    )
+            if cache_row := cache_map.get(url):
+                logging.info("SafeWebFileCache found %s for %s", cache_row, url)
+                if is_cache_only or datetime.now(timezone.utc) < cache_row.expiration:
+                    f_name = url_cache_path / cache_row.file_name
+                    logging.info("SafeWebFileCache is loading %s", f_name)
+                    with open(f_name, "rb") as file:
+                        return file.read(), cache_row.content_type
+
         except Exception as ex:  # pylint: disable=broad-except
             logging.info("%s cache load exception: %s", url, ex)
 
@@ -879,22 +874,21 @@ class SafeWebFileCache:  # pylint: disable=too-few-public-methods
             return b"", ""
 
         try:
-            resp = SafeWebFileCache._load_from_web(url)
+            logging.info("%s load attempt", url)
+            resp = requests.get(url, timeout=600)
+            logging.info("%s request status code %s", url, resp.status_code)
             if resp.status_code == requests.codes.ok:  # pylint: disable=no-member
                 content = resp.content
                 headers = resp.headers
-                content_type = headers.get(
-                    "content-type", headers.get("Content-Type", "")
-                )
-                cache_info = headers.get(
-                    "cache-control", headers.get("Cache-Control", "")
-                )
-                new_row = SafeWebFileCache._new_hash_map_row(cache_info, content_type)
+                c_ctrl = headers.get("cache-control", headers.get("Cache-Control", ""))
+                cnt_type = headers.get("content-type", headers.get("Content-Type", ""))
+                new_row = SafeWebFileCache._new_hash_map_row(c_ctrl, cnt_type)
                 SafeWebFileCache._add_row_to_hash_map(url, new_row)
-                SafeWebFileCache._save_to_file(
-                    SafeWebFileCache._url_to_cache_path(url), new_row, content
-                )
-                return content, content_type
+                f_name = SafeWebFileCache._url_to_cache_path(url) / new_row.file_name
+                logging.info("SafeWebFileCache is saving to %s", f_name)
+                with open(f_name, "wb") as file:
+                    file.write(content)
+                return content, cnt_type
         except Exception as ex:  # pylint: disable=broad-except
             logging.info("%s web load exception: %s", url, ex)
             raise
