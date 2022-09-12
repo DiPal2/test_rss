@@ -47,7 +47,7 @@ def test_safe_web_file_cache(home, home_path):  # pylint: disable=unused-argumen
         mock.get(url2, content=url2_data)
         returned_data, returned_type = SafeWebFileCache.load_url(url2, False)
     assert returned_data == url2_data
-    assert returned_type == ''
+    assert returned_type == ""
 
     # cache is overwritten for 2nd URL as there was no TTL
     with requests_mock.Mocker() as mock:
